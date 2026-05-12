@@ -2,33 +2,29 @@
 Vercel serverless handler entry point.
 """
 
+from fastapi import FastAPI
+from mangum import Mangum
 import sys
 import os
 
 # Add parent to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Create FastAPI app
+app = FastAPI()
+
+# Try to load full app
 try:
-    from app.main import handler
-    app = handler
+    from app.main import app as main_app
+    app = main_app
 except Exception as e:
-    import logging
-    logging.basicConfig(level=logging.ERROR)
-    logger = logging.getLogger(__name__)
-    logger.error(f"Import error: {e}")
-    
-    # Fallback minimal handler
-    from mangum import Mangum
-    from fastapi import FastAPI
-    
-    fallback_app = FastAPI()
-    
-    @fallback_app.get("/")
+    @app.get("/")
     async def root():
-        return {"status": "error", "message": str(e)}
+        return {"status": "loading", "error": str(e)[:100]}
     
-    @fallback_app.get("/health")
+    @app.get("/health")
     async def health():
-        return {"status": "error", "message": str(e)}
-    
-    app = Mangum(fallback_app, lifespan="off")
+        return {"status": "loading", "error": str(e)[:100]}
+
+# Create handler for Vercel
+handler = Mangum(app, lifespan="off")
