@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, Request, Response, Header, HTTPException
 from fastapi.responses import JSONResponse
@@ -27,9 +27,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Global clients
-groq_client: GroqClient | None = None
-tg_client: TelegramClient | None = None
-wa_client: GreenApiClient | None = None
+groq_client: Optional[GroqClient] = None
+tg_client: Optional[TelegramClient] = None
+wa_client: Optional[GreenApiClient] = None
 
 
 @asynccontextmanager
