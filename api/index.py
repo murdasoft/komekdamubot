@@ -2,7 +2,15 @@
 Vercel serverless handler entry point.
 """
 
-from app.main import handler
+import sys
+from pathlib import Path
 
-# Export the Mangum handler for Vercel
-app = handler
+# Add parent to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Lazy import to avoid cold start errors
+def get_app():
+    from app.main import handler
+    return handler
+
+app = get_app()
