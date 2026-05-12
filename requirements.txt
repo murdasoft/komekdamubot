@@ -1,0 +1,9 @@
+# FastAPI and server
+fastapi==0.109.2
+mangum==0.17.0
+uvicorn==0.27.1
+
+# HTTP client
+httpx==0.27.0
+
+# No additional ML libraries needed - using Groq API for LLM and STT
