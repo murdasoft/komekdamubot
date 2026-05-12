@@ -141,14 +141,16 @@ async def telegram_webhook(
 @app.post("/webhook/whatsapp")
 async def whatsapp_webhook(
     request: Request,
+    authorization: str = Header(default=""),
     x_webhook_token: str = Header(default=""),
 ):
     """Handle WhatsApp (Green API) webhook updates."""
     settings = get_settings()
     
-    # Verify webhook token
+    # Verify webhook token (Green API uses Authorization header)
     if settings.green_api_webhook_token:
-        if x_webhook_token != settings.green_api_webhook_token:
+        token = authorization or x_webhook_token
+        if token != settings.green_api_webhook_token:
             raise HTTPException(status_code=401, detail="Unauthorized")
     
     if not wa_client:
