@@ -113,15 +113,15 @@ async def health():
 @app.post("/webhook/telegram")
 async def telegram_webhook(
     request: Request,
-    x_telegram_bot_api_secret_token: str = Header(default=""),
+    x_telegram_bot_api_secret_token: str = Header(default=None),
 ):
     """Handle Telegram webhook updates."""
     settings = get_settings()
     
-    # Verify secret token
-    if settings.telegram_webhook_secret:
+    # Verify secret token (optional security)
+    if settings.telegram_webhook_secret and x_telegram_bot_api_secret_token:
         if x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
-            raise HTTPException(status_code=401, detail="Unauthorized")
+            raise HTTPException(status_code=401, detail="Invalid secret")
     
     if not tg_client:
         raise HTTPException(status_code=503, detail="Telegram not configured")
