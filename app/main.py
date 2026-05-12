@@ -107,7 +107,12 @@ async def root():
 @app.get("/health")
 async def health():
     """Health check."""
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "groq": groq_client is not None,
+        "telegram": tg_client is not None,
+        "whatsapp": wa_client is not None,
+    }
 
 
 @app.post("/webhook/telegram")
