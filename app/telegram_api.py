@@ -42,7 +42,12 @@ class TelegramClient:
         }
         if reply_markup:
             payload["reply_markup"] = reply_markup
-        return await self._post("sendMessage", payload)
+        result = await self._post("sendMessage", payload)
+        # If failed due to parse error, retry without parse_mode
+        if result is None and parse_mode:
+            payload.pop("parse_mode", None)
+            result = await self._post("sendMessage", payload)
+        return result
 
     async def answer_callback_query(self, callback_query_id: str, text: str | None = None) -> None:
         payload: dict[str, Any] = {"callback_query_id": callback_query_id}
