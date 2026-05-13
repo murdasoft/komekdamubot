@@ -561,6 +561,7 @@ async def handle_telegram_update(
         selected_platform = text_stripped.split(":", 1)[1]
         session["platform"] = selected_platform
         session["state"] = "selecting_lang"
+        await save_session(chat_id, session)
         
         if selected_platform == "wa":
             # WhatsApp-style text menu with digits
