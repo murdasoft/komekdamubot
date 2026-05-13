@@ -479,7 +479,19 @@ async def handle_telegram_update(
                 content.HANDOFF_RELEASED_RU if session.get("lang", "ru") == "ru" else content.HANDOFF_RELEASED_KK
             )
             return
-        # Silent during handoff
+        # Still answer questions via AI even in handoff
+        if text:
+            lang_h = session.get("lang", "ru")
+            ai_response = await _handle_ai_response_with_context(text.strip(), session, groq)
+            if ai_response:
+                await tg_client.send_message(chat_id, ai_response)
+            else:
+                note = (
+                    "Менеджер скоро ответит. Напишите *бот* чтобы вернуться к боту."
+                    if lang_h == "ru" else
+                    "Менеджер жақын арада жауап береді. Ботқа оралу үшін *бот* жазыңыз."
+                )
+                await tg_client.send_message(chat_id, note)
         return
     
     # Handle voice message
