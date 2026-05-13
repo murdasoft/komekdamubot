@@ -545,6 +545,12 @@ async def handle_telegram_update(
     
     text_stripped = text.strip()
     
+    # Detect language from first meaningful message
+    if session.get("state") == "idle" or len(text_stripped) > 5:
+        detected = _detect_language(text_stripped)
+        if detected:
+            session["lang"] = detected
+    
     lang = session.get("lang", "ru")
     
     # Helper to send with keyboard
@@ -567,6 +573,30 @@ async def handle_telegram_update(
         await tg_client.answer_callback_query(callback_id)
         selected_platform = text_stripped.split(":", 1)[1]
         session["platform"] = selected_platform
+        await save_session(chat_id, session)
+        
+        # If language already detected, skip language selection
+        if session.get("lang"):
+            session["state"] = "idle"
+            lang = session["lang"]
+            if selected_platform == "wa":
+                wa_intro = (
+                    f"📱 *WhatsApp режим*\n\n"
+                    "В WhatsApp используется текстовое меню с цифрами:\n\n"
+                    f"{content.get_wa_menu(lang)}\n\n"
+                    "*Напишите цифру от 1 до 7* или *отправьте голосовое сообщение*\n\n"
+                    "Перейти в WhatsApp:\n"
+                    "📞 `+7 701 2117340`"
+                )
+                await tg_client.send_message(chat_id, wa_intro)
+            else:
+                await send_with_keyboard(
+                    content.get_greeting(lang),
+                    content.get_menu_keyboard(lang)
+                )
+            return
+        
+        # Show language selection
         session["state"] = "selecting_lang"
         await save_session(chat_id, session)
         
