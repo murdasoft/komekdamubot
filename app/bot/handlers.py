@@ -832,7 +832,7 @@ async def handle_telegram_update(
     
     # Telegram mode: AI response for any text (when not in flow)
     platform = session.get("platform", "tg")
-    if platform == "tg" and session.get("state") == "idle" and not callback_id:
+    if session.get("state") == "idle" and not callback_id:
         # Check if it's a calculation request
         from app.credit_calculator import extract_amount_and_rate, format_calculation_result
         calc_params = extract_amount_and_rate(text_stripped)
