@@ -630,8 +630,13 @@ async def handle_telegram_update(
             else:
                 session["state"] = "selecting_lang"
                 await save_session(chat_id, session)
+                lang_prompt = (
+                    "🌐 *Выберите язык / Тілді таңдаңыз:*\n\n"
+                    "Или сразу напишите ваш вопрос — я отвечу на вашем языке\n"
+                    "Немесе сұрағыңызды жазыңыз — тіліңізде жауап беремін"
+                )
                 await send_with_keyboard(
-                    content.get_language_prompt("ru"),
+                    lang_prompt,
                     content.get_language_keyboard()
                 )
         return
@@ -663,6 +668,22 @@ async def handle_telegram_update(
             )
         return
     
+    # Handle language selection state (Telegram)
+    if session.get("state") == "selecting_lang" and session.get("platform") != "wa":
+        # If free text — detect language and go straight to AI
+        if text_stripped not in ["1", "2"] and not callback_id:
+            # Detect language from text
+            kk_chars = set('әіңғүұқөһ')
+            detected = "kk" if any(c in text_stripped.lower() for c in kk_chars) else "ru"
+            session["lang"] = detected
+            session["state"] = "idle"
+            await save_session(chat_id, session)
+            # Answer via AI
+            ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
+            if ai_response:
+                await send_with_keyboard(ai_response, content.get_menu_keyboard(detected))
+            return
+
     # Handle WhatsApp-style language selection (text input 1 or 2)
     if session.get("state") == "selecting_lang" and session.get("platform") == "wa":
         if text_stripped in ["1", "2"]:
@@ -679,12 +700,18 @@ async def handle_telegram_update(
             await tg_client.send_message(chat_id, wa_intro)
             return
         else:
-            # Wrong input, remind
-            await tg_client.send_message(
-                chat_id,
-                "❌ *Напишите только цифру 1 или 2*\n"
-                "❌ *1 немесе 2 санын жазыңыз*"
+            # Free text in WA lang selection — detect and proceed
+            kk_chars = set('әіңғүұқөһ')
+            detected = "kk" if any(c in text_stripped.lower() for c in kk_chars) else "ru"
+            session["lang"] = detected
+            session["state"] = "idle"
+            await save_session(chat_id, session)
+            wa_intro = (
+                f"{content.get_wa_intro(detected)}"
+                f"{content.get_wa_menu(detected)}\n\n"
+                f"{content.get_wa_footer(detected)}"
             )
+            await tg_client.send_message(chat_id, wa_intro)
             return
     
     # Handle WhatsApp menu digits (1-7) or AI response for any text
