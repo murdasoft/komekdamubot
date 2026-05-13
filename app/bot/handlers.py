@@ -545,12 +545,6 @@ async def handle_telegram_update(
     
     text_stripped = text.strip()
     
-    # Detect language from first meaningful message
-    if session.get("state") == "idle" or len(text_stripped) > 5:
-        detected = _detect_language(text_stripped)
-        if detected:
-            session["lang"] = detected
-    
     lang = session.get("lang", "ru")
     
     # Helper to send with keyboard
