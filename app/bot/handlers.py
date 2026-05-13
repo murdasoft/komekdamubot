@@ -608,16 +608,16 @@ async def handle_telegram_update(
         # - WhatsApp (digits): always show language selection
         # - Telegram (buttons): skip if language already detected
         if selected_platform == "wa":
-            # WhatsApp - always show language selection
-            session["state"] = "selecting_lang"
+            # WhatsApp - skip menu, go straight to AI chat mode
+            session["state"] = "idle"
             await save_session(chat_id, session)
-            wa_lang_menu = (
-                "🌐 *Выберите язык / Тілді таңдаңыз:*\n\n"
-                "1️⃣ Русский\n"
-                "2️⃣ Қазақша\n\n"
-                "*Напишите цифру 1 или 2*"
+            greeting = (
+                "Сәлеметсіз бе! Мен KOMEK DAMU компаниясының кеңесшісімін.\n"
+                "Несие, ипотека немесе қаржыландыру бойынша сұрағыңызды жазыңыз — көмектесемін.\n\n"
+                "Здравствуйте! Я консультант KOMEK DAMU.\n"
+                "Напишите ваш вопрос по кредиту, ипотеке или финансированию — помогу разобраться."
             )
-            await tg_client.send_message(chat_id, wa_lang_menu)
+            await tg_client.send_message(chat_id, greeting)
         else:
             # Telegram - skip language selection if already detected
             if session.get("lang"):
@@ -741,19 +741,40 @@ async def handle_telegram_update(
             else:
                 await _start_product_flow(chat_id, product_key, session, lambda m: tg_client.send_message(chat_id, m))
             return
-        else:
-            # AI response for any other text in WhatsApp mode
-            ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
-            if ai_response:
-                session["conversation_history"].append({
-                    "role": "assistant",
-                    "text": ai_response,
-                    "timestamp": time.time()
-                })
-                await tg_client.send_message(chat_id, ai_response)
-            else:
-                await tg_client.send_message(chat_id, content.get_unknown_message(lang))
+        
+        # Check if user asked for menu
+        menu_keywords = ["меню", "menu", "мәзір", "список", "варианты", "нұсқалар"]
+        if any(w in text_stripped.lower() for w in menu_keywords):
+            await tg_client.send_message(chat_id, content.get_wa_menu(lang))
             return
+        
+        # Otherwise — detect language from text and answer via AI (no menu)
+        kk_chars = set('әіңғүұқөһ')
+        if any(c in text_stripped.lower() for c in kk_chars):
+            session["lang"] = "kk"
+            lang = "kk"
+        else:
+            if not session.get("lang"):
+                session["lang"] = "ru"
+                lang = "ru"
+        
+        session["conversation_history"].append({
+            "role": "user",
+            "text": text_stripped,
+            "timestamp": time.time()
+        })
+        ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
+        if ai_response:
+            session["conversation_history"].append({
+                "role": "assistant",
+                "text": ai_response,
+                "timestamp": time.time()
+            })
+            await tg_client.send_message(chat_id, ai_response)
+        else:
+            await tg_client.send_message(chat_id, content.get_unknown_message(lang))
+        await save_session(chat_id, session)
+        return
     
     # Handle operator request
     if any(word in text_stripped.lower() for word in ["оператор", "менеджер", "человек", "маман", "админ"]):
