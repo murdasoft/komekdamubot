@@ -498,10 +498,12 @@ async def handle_telegram_update(
             logger.error(f"Invalid chat_id for /start: {chat_id}")
             return
         _reset_session(chat_id, "telegram")
+        # Also persist reset to Supabase so next request sees clean state
+        await save_session(chat_id, _sessions[chat_id])
         # Show platform selection first
         msg_text = content.get_platform_prompt("ru")
         keyboard = content.get_platform_keyboard()
-        logger.info(f"Sending /start response to chat_id={chat_id}, text={msg_text[:50]}...")
+        logger.info(f"Sending /start response to chat_id={chat_id}")
         try:
             await tg_client.send_message(
                 chat_id,
