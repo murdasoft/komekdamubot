@@ -327,11 +327,36 @@ async def _process_flow_step(
     if not step:
         return False
     
+    # Allow escape from flow: "стоп", "отмена", "выход", "stop", "cancel"
+    exit_words = ["стоп", "отмена", "выход", "stop", "cancel", "тоқта", "болдырмау"]
+    if any(w in text.lower() for w in exit_words):
+        _reset_session(chat_id, session.get("platform", "telegram"))
+        exit_msg = (
+            "Хорошо, анкета отменена. Напишите ваш вопрос или «меню» для списка услуг."
+            if lang == "ru" else
+            "Жарайды, анкета тоқтатылды. Сұрағыңызды жазыңыз немесе қызметтер тізімі үшін «мәзір» деп жазыңыз."
+        )
+        await send_message_func(exit_msg)
+        return False
+    
     # Validate input if validator exists
     validated_value = text
     if step.validate:
         is_valid, validated = step.validate(text)
         if not is_valid:
+            # If looks like off-topic free text (not a number/yes/no) — answer via AI and stay in flow
+            if groq and len(text) > 5 and not any(c.isdigit() for c in text):
+                ai_reply = await groq.chat(
+                    system=(
+                        "Ты консультант KOMEK DAMU. Пользователь заполняет анкету на кредит и написал вопрос. "
+                        "Ответь коротко (1-2 предложения) и напомни ему продолжить заполнение анкеты."
+                    ),
+                    messages=[{"role": "user", "content": text}],
+                )
+                if ai_reply:
+                    question = step.question_ru if lang == "ru" else step.question_kk
+                    await send_message_func(f"{ai_reply}\n\n{question}")
+                    return True
             # Invalid input, ask again
             question = step.question_ru if lang == "ru" else step.question_kk
             await send_message_func(
