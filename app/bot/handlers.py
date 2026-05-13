@@ -38,6 +38,8 @@ _sessions: Dict[str, Dict] = defaultdict(lambda: {
     "handoff_until": 0,
     "conversation_history": [],  # Store last messages for context
     "context_topic": None,  # Current conversation topic
+    "message_count": 0,  # Count messages for auto-handoff
+    "platform": "telegram",  # telegram or whatsapp
 })
 
 # Random responses for small talk
@@ -679,6 +681,22 @@ async def handle_telegram_update(
     # Keep only last 10 messages for context
     session["conversation_history"] = session["conversation_history"][-10:]
     
+    # Increment message count for auto-handoff
+    session["message_count"] = session.get("message_count", 0) + 1
+    
+    # Auto-handoff to manager after 2-3 messages (if not in flow)
+    if session["message_count"] >= 3 and session.get("state") == "idle" and not callback_id:
+        session["state"] = "handoff"
+        session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
+        await tg_client.send_message(chat_id, content.get_operator_message(lang))
+        await _notify_manager(
+            f"🚨 *Авто-передача менеджеру (3 сообщения)*\nChat: `{chat_id}`\nПлатформа: {platform}\nПоследнее сообщение: {text_stripped[:100]}...",
+            chat_id,
+            "telegram"
+        )
+        await save_session(chat_id, session)
+        return
+    
     # Log message to database
     platform = session.get("platform", "telegram")
     await log_message(chat_id, platform, "user", text_stripped, lang)
@@ -699,6 +717,24 @@ async def handle_telegram_update(
     # Telegram mode: AI response for any text (when not in flow)
     platform = session.get("platform", "tg")
     if platform == "tg" and session.get("state") == "idle" and not callback_id:
+        # Check if it's a calculation request
+        from app.credit_calculator import extract_amount_and_rate, format_calculation_result
+        calc_params = extract_amount_and_rate(text_stripped)
+        
+        if calc_params and calc_params["amount"] > 0:
+            from app.credit_calculator import calculate_loan
+            calc = calculate_loan(calc_params["amount"], calc_params["rate"], calc_params["years"])
+            response = format_calculation_result(calc, lang)
+            session["conversation_history"].append({
+                "role": "assistant",
+                "text": response,
+                "timestamp": time.time()
+            })
+            await tg_client.send_message(chat_id, response)
+            await log_message(chat_id, platform, "assistant", response, lang)
+            await save_session(chat_id, session)
+            return
+        
         # Check if text looks like menu number
         if text_stripped in ["1", "2", "3", "4", "5", "6", "7"]:
             # Map to product and start flow
