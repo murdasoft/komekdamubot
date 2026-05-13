@@ -17,7 +17,7 @@ GROQ_API_BASE = "https://api.groq.com/openai/v1"
 
 
 class GroqClient:
-    def __init__(self, api_key: str, model: str = "llama3-70b-8192", stt_model: str = "whisper-large-v3"):
+    def __init__(self, api_key: str, model: str = "llama-3.3-70b-versatile", stt_model: str = "whisper-large-v3"):
         self.api_key = api_key
         self.model = model
         self.stt_model = stt_model

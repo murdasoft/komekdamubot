@@ -28,7 +28,7 @@ class Settings:
     
     # Groq AI
     groq_api_key: str = field(default_factory=lambda: _getenv("GROQ_API_KEY"))
-    groq_model: str = field(default_factory=lambda: _getenv("GROQ_MODEL", "llama3-70b-8192"))
+    groq_model: str = field(default_factory=lambda: _getenv("GROQ_MODEL", "llama-3.3-70b-versatile"))
     groq_stt_model: str = field(default_factory=lambda: _getenv("GROQ_STT_MODEL", "whisper-large-v3"))
     
     # Bitrix24
