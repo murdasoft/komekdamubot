@@ -77,10 +77,7 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # Cleanup
-    if tg_client:
-        await tg_client.delete_webhook()
-        logger.info("Telegram webhook deleted")
+    # Note: do NOT delete webhook on shutdown — Vercel serverless restarts frequently
 
 
 app = FastAPI(
