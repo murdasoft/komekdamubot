@@ -123,6 +123,13 @@ async def telegram_webhook(
     """Handle Telegram webhook updates."""
     settings = get_settings()
     
+    # Rate limiting check
+    from app.rate_limiter import is_rate_limited
+    is_limited, reason = is_rate_limited("telegram_webhook")
+    if is_limited:
+        logger.warning(f"Rate limit exceeded for Telegram webhook: {reason}")
+        raise HTTPException(status_code=429, detail=reason)
+    
     # Verify secret token (optional security)
     if settings.telegram_webhook_secret and x_telegram_bot_api_secret_token:
         if x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
@@ -152,20 +159,19 @@ async def whatsapp_webhook(
     """Handle WhatsApp (Green API) webhook updates."""
     settings = get_settings()
     
-    # Debug: log all headers
-    headers = dict(request.headers)
-    logger.info(f"WhatsApp webhook headers: {headers}")
-    logger.info(f"Authorization header: '{authorization}'")
-    logger.info(f"X-Webhook-Token header: '{x_webhook_token}'")
-    logger.info(f"Expected token: '{settings.green_api_webhook_token}'")
+    # Rate limiting check
+    from app.rate_limiter import is_rate_limited
+    is_limited, reason = is_rate_limited("whatsapp_webhook")
+    if is_limited:
+        logger.warning(f"Rate limit exceeded for WhatsApp webhook: {reason}")
+        raise HTTPException(status_code=429, detail=reason)
     
-    # Verify webhook token (Green API uses Authorization header)
-    # TEMPORARILY DISABLED FOR DEBUG
-    # if settings.green_api_webhook_token:
-    #     token = authorization or x_webhook_token
-    #     if token != settings.green_api_webhook_token:
-    #         logger.warning(f"Token mismatch: got '{token}', expected '{settings.green_api_webhook_token}'")
-    #         raise HTTPException(status_code=401, detail="Unauthorized")
+    # Security: verify webhook token (Green API uses Authorization header)
+    if settings.green_api_webhook_token:
+        from app.webhook_security import verify_whatsapp_webhook
+        if not verify_whatsapp_webhook(settings.green_api_webhook_token, authorization):
+            logger.warning(f"Invalid authorization: {authorization[:20] if authorization else 'None'}...")
+            raise HTTPException(status_code=401, detail="Unauthorized")
     
     if not wa_client:
         raise HTTPException(status_code=503, detail="WhatsApp not configured")
@@ -192,6 +198,22 @@ async def whatsapp_webhook(
         logger.exception("Error handling WhatsApp update")
     
     return Response(status_code=200)
+
+
+@app.get("/admin/stats")
+async def admin_stats():
+    """Admin dashboard statistics."""
+    from app.analytics import get_dashboard_stats
+    stats = await get_dashboard_stats()
+    return stats
+
+
+@app.get("/admin/leads")
+async def admin_leads(days: int = 7):
+    """Get leads report."""
+    from app.analytics import get_leads_report
+    leads = await get_leads_report(days)
+    return {"leads": leads, "count": len(leads)}
 
 
 @app.get("/setup")

@@ -22,6 +22,7 @@ from app.bot.flows import (
     validate_phone, validate_number, validate_yes_no
 )
 from app.bot import content
+from app.supabase_client import save_session, load_session, log_message, create_lead
 
 logger = logging.getLogger(__name__)
 
@@ -104,11 +105,22 @@ def _detect_language(text: str) -> str:
     return "ru"
 
 
-def _get_session(chat_id: str) -> Dict:
+async def _get_session(chat_id: str) -> Dict:
+    """Get session from Supabase or memory."""
+    # Try to load from Supabase first
+    db_session = await load_session(chat_id)
+    if db_session:
+        # Merge with memory session
+        _sessions[chat_id].update(db_session)
+    
     session = _sessions[chat_id]
-    # Ensure conversation_history exists (for backward compatibility)
+    # Ensure all fields exist
     if "conversation_history" not in session:
         session["conversation_history"] = []
+    if "platform" not in session:
+        session["platform"] = "telegram"
+    if "context_topic" not in session:
+        session["context_topic"] = None
     return session
 
 
@@ -433,7 +445,7 @@ async def handle_telegram_update(
         return
     
     msg_id = get_message_id(body)
-    session = _get_session(chat_id)
+    session = await _get_session(chat_id)
     
     if sender_name:
         session["contact_name"] = sender_name
@@ -555,11 +567,28 @@ async def handle_telegram_update(
         selected_lang = text_stripped.split(":", 1)[1]
         session["lang"] = selected_lang
         session["state"] = "idle"
-        # Show Telegram interface with buttons
-        await send_with_keyboard(
-            content.get_greeting(selected_lang),
-            content.get_menu_keyboard(selected_lang)
-        )
+        
+        # Save session after language selection
+        await save_session(chat_id, session)
+        
+        platform = session.get("platform", "tg")
+        
+        # Show interface based on platform selection
+        if platform == "wa":
+            wa_intro = (
+                "📱 *WhatsApp режим*\n\n"
+                "В WhatsApp используется текстовое меню с цифрами:\n\n"
+                f"{content.get_wa_menu(selected_lang)}\n\n"
+                "*Напишите цифру от 1 до 7* или *отправьте голосовое сообщение*\n\n"
+                "Перейти в WhatsApp:\n"
+                "📞 `+7 701 2117340`"
+            )
+            await tg_client.send_message(chat_id, wa_intro)
+        else:
+            await send_with_keyboard(
+                content.get_greeting(selected_lang),
+                content.get_menu_keyboard(selected_lang)
+            )
         return
     
     # Handle WhatsApp-style language selection (text input 1 or 2)
@@ -650,6 +679,10 @@ async def handle_telegram_update(
     # Keep only last 10 messages for context
     session["conversation_history"] = session["conversation_history"][-10:]
     
+    # Log message to database
+    platform = session.get("platform", "telegram")
+    await log_message(chat_id, platform, "user", text_stripped, lang)
+    
     # Check for small talk (random responses)
     small_talk_intent = detect_small_talk_intent(text_stripped)
     if small_talk_intent and session.get("state") == "idle":
@@ -701,8 +734,12 @@ async def handle_telegram_update(
                     "timestamp": time.time()
                 })
                 await tg_client.send_message(chat_id, ai_response)
+                # Log AI response
+                await log_message(chat_id, platform, "assistant", ai_response, lang)
             else:
                 await tg_client.send_message(chat_id, content.get_unknown_message(lang))
+            # Save session after AI response
+            await save_session(chat_id, session)
             return
     
     # Handle callback queries (button clicks)
@@ -803,7 +840,7 @@ async def handle_whatsapp_update(
         logger.warning("No chat_id extracted from body")
         return
     
-    session = _get_session(chat_id)
+    session = await _get_session(chat_id)
     session["platform"] = "whatsapp"
     
     if sender_name:
