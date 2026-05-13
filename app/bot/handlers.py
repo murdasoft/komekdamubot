@@ -820,6 +820,7 @@ async def handle_telegram_update(
     
     # Increment message count for auto-handoff
     session["message_count"] = session.get("message_count", 0) + 1
+    platform = session.get("platform", "tg")
     
     # Auto-handoff to manager after 2-3 messages (if not in flow)
     if session["message_count"] >= 3 and session.get("state") == "idle" and not callback_id:
@@ -827,7 +828,7 @@ async def handle_telegram_update(
         session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
         await tg_client.send_message(chat_id, content.get_operator_message(lang))
         await _notify_manager(
-            f"🚨 *Авто-передача менеджеру (3 сообщения)*\nChat: `{chat_id}`\nПлатформа: {platform}\nПоследнее сообщение: {text_stripped[:100]}...",
+            f"🚨 *Авто-передача менеджеру (3 сообщения)*\nЧат: `{chat_id}`\nПлатформа: {platform}\nПоследнее сообщение: {text_stripped[:100]}...",
             chat_id,
             "telegram"
         )
@@ -845,7 +846,6 @@ async def handle_telegram_update(
         return
 
     # Log message to database
-    platform = session.get("platform", "telegram")
     await log_message(chat_id, platform, "user", text_stripped, lang)
     
     # Check for small talk (random responses)
@@ -855,8 +855,7 @@ async def handle_telegram_update(
         await tg_client.send_message(chat_id, response)
         return
     
-    # Telegram mode: AI response for any text (when not in flow)
-    platform = session.get("platform", "tg")
+    # AI response for any text (when not in flow)
     if session.get("state") == "idle" and not callback_id:
         # Check if it's a calculation request
         from app.credit_calculator import extract_amount_and_rate, format_calculation_result
