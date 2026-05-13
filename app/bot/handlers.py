@@ -897,11 +897,18 @@ async def handle_telegram_update(
             "text": ai_response,
             "timestamp": time.time()
         })
-        await tg_client.send_message(chat_id, ai_response)
+        # Send AI response with menu keyboard for Telegram
+        if session.get("platform") == "tg":
+            await send_with_keyboard(ai_response, content.get_menu_keyboard(lang))
+        else:
+            await tg_client.send_message(chat_id, ai_response)
     else:
         # Random response for unknown
         random_fallback = get_random_response("unknown", lang)
-        await tg_client.send_message(chat_id, random_fallback + "\n\n" + content.get_unknown_message(lang))
+        if session.get("platform") == "tg":
+            await send_with_keyboard(random_fallback + "\n\n" + content.get_unknown_message(lang), content.get_menu_keyboard(lang))
+        else:
+            await tg_client.send_message(chat_id, random_fallback + "\n\n" + content.get_unknown_message(lang))
 
 
 async def handle_whatsapp_update(
