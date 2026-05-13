@@ -469,13 +469,22 @@ async def handle_telegram_update(
     
     # Handle /start immediately without loading session
     if text and text.strip() in ["/start", "/menu", "меню", "главное меню", "басты мәзір"]:
+        if not chat_id or chat_id == "None":
+            logger.error(f"Invalid chat_id for /start: {chat_id}")
+            return
         _reset_session(chat_id, "telegram")
         # Show platform selection first
-        await tg_client.send_message(
-            chat_id,
-            content.get_platform_prompt("ru"),
-            reply_markup=content.get_platform_keyboard()
-        )
+        msg_text = content.get_platform_prompt("ru")
+        keyboard = content.get_platform_keyboard()
+        logger.info(f"Sending /start response to chat_id={chat_id}, text={msg_text[:50]}...")
+        try:
+            await tg_client.send_message(
+                chat_id,
+                msg_text,
+                reply_markup=keyboard
+            )
+        except Exception as e:
+            logger.error(f"Failed to send /start response: {e}")
         return
     
     # Handle 99 for language selection
