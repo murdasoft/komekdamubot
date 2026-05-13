@@ -3,6 +3,17 @@ UI Content for KOMEK DAMU bot.
 Russian and Kazakh languages supported.
 """
 
+# Platform selection
+PLATFORM_PROMPT_RU = "📱 *Выберите мессенджер / Мессенджерді таңдаңыз:*"
+PLATFORM_PROMPT_KK = "📱 *Выберите мессенджер / Мессенджерді таңдаңыз:*"
+
+PLATFORM_KEYBOARD = {
+    "inline_keyboard": [
+        [{"text": "✈️ Telegram (кнопки)", "callback_data": "platform:tg"}],
+        [{"text": "💬 WhatsApp (текст+цифры)", "callback_data": "platform:wa"}],
+    ]
+}
+
 # Language selection
 LANGUAGE_PROMPT_RU = "🌐 *Выберите язык / Тілді таңдаңыз:*"
 LANGUAGE_PROMPT_KK = "🌐 *Выберите язык / Тілді таңдаңыз:*"
@@ -43,6 +54,7 @@ MENU_KEYBOARD_RU = {
         [{"text": "🔄 Рефинансирование", "callback_data": "product:refinancing"}],
         [{"text": "⚠️ Сложный случай", "callback_data": "product:complex_case"}],
         [{"text": "👨‍💼 Связаться с менеджером", "callback_data": "action:operator"}],
+        [{"text": "📱 Как выглядит в WhatsApp", "callback_data": "demo:whatsapp"}],
     ]
 }
 
@@ -55,6 +67,7 @@ MENU_KEYBOARD_KK = {
         [{"text": "🔄 Қайта қаржыландыру", "callback_data": "product:refinancing"}],
         [{"text": "⚠️ Қиын жағдай", "callback_data": "product:complex_case"}],
         [{"text": "👨‍💼 Менеджермен байланысу", "callback_data": "action:operator"}],
+        [{"text": "📱 WhatsApp-тағы көрінісі", "callback_data": "demo:whatsapp"}],
     ]
 }
 
@@ -107,6 +120,63 @@ UNKNOWN_KK = (
 # Language detection failed
 LANG_DETECT_FAILED_RU = "Извините, не удалось определить язык. Пожалуйста, напишите текстом."
 LANG_DETECT_FAILED_KK = "Кешіріңіз, тілді анықтау мүмкін болмады. Мәтінмен жазыңыз."
+
+# WhatsApp demo for Telegram users
+WHATSAPP_DEMO_RU = """📱 *Как выглядит этот бот в WhatsApp*
+
+В WhatsApp интерфейс другой — там нет красивых кнопок как здесь.
+
+Вместо этого бот показывает *текстовое меню с цифрами*:
+
+```
+📋 Меню KOMEK DAMU
+
+Выберите цифру нужного раздела:
+
+1️⃣ Кредит для себя
+2️⃣ Кредит для бизнеса  
+3️⃣ DAMU 12,6%
+4️⃣ Ипотека
+5️⃣ Страхование
+6️⃣ Инвестиции
+7️⃣ Связаться с оператором
+
+Напишите цифру от 1 до 7
+```
+
+🔹 Вы просто пишете число — и бот понимает что вам нужно
+🔹 Голосовые сообщения тоже работают
+🔹 Тот же AI и тот же функционал
+
+*WhatsApp номер бота:* `+7 701 2117340`"""
+
+WHATSAPP_DEMO_KK = """📱 *Бұл бот WhatsApp-та қалай көрінеді*
+
+WhatsApp-та интерфейс басқа — мұндағы сияқты әдемі түймелер жоқ.
+
+Оның орнына бот *сандармен мәтіндік мәзір* көрсетеді:
+
+```
+📋 KOMEK DAMU мәзірі
+
+Қажетті бөлімнің санын жазыңыз:
+
+1️⃣ Жеке несие
+2️⃣ Бизнес несиесі  
+3️⃣ DAMU 12,6%
+4️⃣ Ипотека
+5️⃣ Сақтандыру
+6️⃣ Инвестиция
+7️⃣ Оператормен байланысу
+
+1-ден 7-ге дейін сан жазыңыз
+```
+
+🔹 Сіз тек сан жазасыз — бот сіздің не қажет екенін түсінеді
+🔹 Дауыстық хабарламалар да жұмыс істейді
+🔹 Сол AI және сол функционал
+
+*WhatsApp бот нөмірі:* `+7 701 2117340`"""
 
 # WhatsApp numeric menu (for WA users)
 WA_MENU_RU = (
@@ -169,6 +239,14 @@ WA_MORTGAGE_DIGIT_MAP = {
 }
 
 
+def get_platform_prompt(lang: str = "ru") -> str:
+    return PLATFORM_PROMPT_RU if lang == "ru" else PLATFORM_PROMPT_KK
+
+
+def get_platform_keyboard() -> dict:
+    return PLATFORM_KEYBOARD
+
+
 def get_language_prompt(lang: str = "ru") -> str:
     return LANGUAGE_PROMPT_RU if lang == "ru" else LANGUAGE_PROMPT_KK
 
@@ -187,6 +265,10 @@ def get_menu_keyboard(lang: str = "ru") -> dict:
 
 def get_mortgage_menu(lang: str = "ru") -> dict:
     return MORTGAGE_MENU_RU if lang == "ru" else MORTGAGE_MENU_KK
+
+
+def get_whatsapp_demo(lang: str = "ru") -> str:
+    return WHATSAPP_DEMO_RU if lang == "ru" else WHATSAPP_DEMO_KK
 
 
 def get_wa_menu(lang: str = "ru") -> str:

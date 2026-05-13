@@ -513,7 +513,19 @@ async def handle_telegram_update(
     # Handle /start or menu return
     if text_stripped in ["/start", "/menu", "меню", "главное меню", "басты мәзір"]:
         _reset_session(chat_id, "telegram")
-        # Show language selection first
+        # Show platform selection first
+        session["state"] = "selecting_platform"
+        await send_with_keyboard(
+            content.get_platform_prompt("ru"),
+            content.get_platform_keyboard()
+        )
+        return
+    
+    # Handle platform selection callback
+    if callback_id and text_stripped.startswith("platform:"):
+        await tg_client.answer_callback_query(callback_id)
+        selected_platform = text_stripped.split(":", 1)[1]
+        session["platform"] = selected_platform
         session["state"] = "selecting_lang"
         await send_with_keyboard(
             content.get_language_prompt("ru"),
@@ -527,10 +539,26 @@ async def handle_telegram_update(
         selected_lang = text_stripped.split(":", 1)[1]
         session["lang"] = selected_lang
         session["state"] = "idle"
-        await send_with_keyboard(
-            content.get_greeting(selected_lang),
-            content.get_menu_keyboard(selected_lang)
-        )
+        platform = session.get("platform", "tg")
+        
+        # Show interface based on platform selection
+        if platform == "wa":
+            # Show WhatsApp demo with numeric menu
+            wa_intro = (
+                "📱 *WhatsApp режим*\n\n"
+                "В WhatsApp используется текстовое меню с цифрами:\n\n"
+                f"{content.get_wa_menu(selected_lang)}\n\n"
+                "*Напишите цифру от 1 до 7* или *отправьте голосовое сообщение*\n\n"
+                "Перейти в WhatsApp:\n"
+                "📞 `+7 701 2117340`"
+            )
+            await tg_client.send_message(chat_id, wa_intro)
+        else:
+            # Show Telegram interface with buttons
+            await send_with_keyboard(
+                content.get_greeting(selected_lang),
+                content.get_menu_keyboard(selected_lang)
+            )
         return
     
     # Handle operator request
@@ -568,7 +596,7 @@ async def handle_telegram_update(
         return
     
     # Handle callback queries (button clicks)
-    if callback_id and text_stripped.startswith(("product:", "menu:", "action:", "lang:")):
+    if callback_id and text_stripped.startswith(("product:", "menu:", "action:", "lang:", "platform:")):
         await tg_client.answer_callback_query(callback_id)
         
         if text_stripped.startswith("product:"):
@@ -594,6 +622,10 @@ async def handle_telegram_update(
             session["state"] = "handoff"
             session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
             await tg_client.send_message(chat_id, content.get_operator_message(lang))
+            return
+        
+        elif text_stripped == "demo:whatsapp":
+            await tg_client.send_message(chat_id, content.get_whatsapp_demo(lang))
             return
     
     # Handle active flow
