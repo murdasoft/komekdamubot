@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, Optional
+import random
+from typing import Any, Dict, Optional, List
 from collections import defaultdict
 
 from app.config import get_settings
@@ -34,7 +35,55 @@ _sessions: Dict[str, Dict] = defaultdict(lambda: {
     "last_message_id": None,
     "contact_name": None,
     "handoff_until": 0,
+    "conversation_history": [],  # Store last messages for context
+    "context_topic": None,  # Current conversation topic
 })
+
+# Random responses for small talk
+RANDOM_RESPONSES_RU = {
+    "greeting": ["Привет! 👋", "Здравствуйте! 🌟", "Рад вас видеть! 😊"],
+    "thanks": ["Пожалуйста! Всегда рад помочь 🤝", "Обращайтесь! 👍", "Всегда к вашим услугам! 😊"],
+    "how_are_you": ["Всё отлично, готов помочь с финансами! 💪", "Работаю на полную, спрашивайте! 🚀", "В прекрасном настроении! Чем помочь? 😊"],
+    "bye": ["До свидания! Обращайтесь ещё 👋", "Всего доброго! 🌟", "До встречи! 🤝"],
+    "unknown": ["Интересный вопрос! Давайте разберёмся 🤔", "Хм, давайте посмотрим... 🤓", "Отличный вопрос! 🎯"],
+}
+
+RANDOM_RESPONSES_KK = {
+    "greeting": ["Сәлем! 👋", "Қош келдіңіз! 🌟", "Сізді көргеніме қуаныштымын! 😊"],
+    "thanks": ["Өтінемін! Көмектесуге әрқашан дайынмын 🤝", "Хабарласыңыз! 👍", "Әрқашан қызметтіңіздемін! 😊"],
+    "how_are_you": ["Барлық жақсы, қаржы бойынша көмектесуге дайынмын! 💪", "Толық жұмыс істеймін, сұраңыз! 🚀", "Керемет көңіл-күйде! Қалай көмектесе аламын? 😊"],
+    "bye": ["Сау болыңыз! Келесі жолы хабарласыңыз 👋", "Бәрі жақсы болсын! 🌟", "Келесі кездескенше! 🤝"],
+    "unknown": ["Қызықты сұрақ! Келіңіз, талдайық 🤔", "Хм, қарап көрейік... 🤓", "Керемет сұрақ! 🎯"],
+}
+
+def get_random_response(category: str, lang: str = "ru") -> str:
+    """Get random response for category."""
+    responses = RANDOM_RESPONSES_RU if lang == "ru" else RANDOM_RESPONSES_KK
+    return random.choice(responses.get(category, responses["unknown"]))
+
+def detect_small_talk_intent(text: str) -> str | None:
+    """Detect if user is making small talk vs asking about products."""
+    text_lower = text.lower()
+    
+    greetings = ["привет", "здравствуй", "сәлем", "сәлеметсіз", "hi", "hello", "hey"]
+    thanks = ["спасибо", "благодар", "рахмет", "рақмет", "спс", "thanks", "thank you"]
+    how_are_you = ["как дела", "как ты", "қалайсыз", "қалай", "how are you", "как поживаешь"]
+    bye = ["пока", "до свидания", "сау", "сау бол", "bye", "goodbye", "до встречи"]
+    
+    for word in greetings:
+        if word in text_lower:
+            return "greeting"
+    for word in thanks:
+        if word in text_lower:
+            return "thanks"
+    for word in how_are_you:
+        if word in text_lower:
+            return "how_are_you"
+    for word in bye:
+        if word in text_lower:
+            return "bye"
+    
+    return None
 
 
 def _detect_language(text: str) -> str:
@@ -194,6 +243,40 @@ async def _handle_ai_response(
     response, err = await groq.chat(messages, temperature=0.7)
     if err:
         logger.error("AI error: %s", err)
+        return None
+    return response
+
+
+async def _handle_ai_response_with_context(
+    text: str,
+    session: Dict,
+    groq: GroqClient,
+) -> str | None:
+    """Get AI response with conversation history for context understanding."""
+    lang = session.get("lang", "ru")
+    system_prompt = get_system_prompt(lang)
+    
+    # Build context from knowledge base
+    context = "Доступные продукты:\n"
+    for key, product in PRODUCTS.items():
+        name = product.name_ru if lang == "ru" else product.name_kk
+        context += f"- {name}\n"
+    
+    # Build conversation history
+    history = session.get("conversation_history", [])
+    messages = [{"role": "system", "content": system_prompt + "\n\n" + context}]
+    
+    # Add last 5 messages for context
+    for msg in history[-5:]:
+        role = "user" if msg["role"] == "user" else "assistant"
+        messages.append({"role": role, "content": msg["text"]})
+    
+    # Add current message
+    messages.append({"role": "user", "content": text})
+    
+    response, err = await groq.chat(messages, temperature=0.8)
+    if err:
+        logger.error("AI error with context: %s", err)
         return None
     return response
 
@@ -430,10 +513,23 @@ async def handle_telegram_update(
     # Handle /start or menu return
     if text_stripped in ["/start", "/menu", "меню", "главное меню", "басты мәзір"]:
         _reset_session(chat_id, "telegram")
-        session["lang"] = lang
+        # Show language selection first
+        session["state"] = "selecting_lang"
         await send_with_keyboard(
-            content.get_greeting(lang),
-            content.get_menu_keyboard(lang)
+            content.get_language_prompt("ru"),
+            content.get_language_keyboard()
+        )
+        return
+    
+    # Handle language selection callback
+    if callback_id and text_stripped.startswith("lang:"):
+        await tg_client.answer_callback_query(callback_id)
+        selected_lang = text_stripped.split(":", 1)[1]
+        session["lang"] = selected_lang
+        session["state"] = "idle"
+        await send_with_keyboard(
+            content.get_greeting(selected_lang),
+            content.get_menu_keyboard(selected_lang)
         )
         return
     
@@ -449,8 +545,30 @@ async def handle_telegram_update(
         )
         return
     
+    # Store message in conversation history for context
+    session["conversation_history"].append({
+        "role": "user",
+        "text": text_stripped,
+        "timestamp": time.time()
+    })
+    # Keep only last 10 messages for context
+    session["conversation_history"] = session["conversation_history"][-10:]
+    
+    # Check for small talk (random responses)
+    small_talk_intent = detect_small_talk_intent(text_stripped)
+    if small_talk_intent and session.get("state") == "idle":
+        response = get_random_response(small_talk_intent, lang)
+        await tg_client.send_message(chat_id, response)
+        # If greeting, also show menu
+        if small_talk_intent == "greeting":
+            await send_with_keyboard(
+                content.get_greeting(lang),
+                content.get_menu_keyboard(lang)
+            )
+        return
+    
     # Handle callback queries (button clicks)
-    if callback_id and text_stripped.startswith(("product:", "menu:", "action:")):
+    if callback_id and text_stripped.startswith(("product:", "menu:", "action:", "lang:")):
         await tg_client.answer_callback_query(callback_id)
         
         if text_stripped.startswith("product:"):
@@ -511,12 +629,20 @@ async def handle_telegram_update(
             await tg_client.send_message(chat_id, answer)
             return
     
-    # AI response for unrecognized text
-    ai_response = await _handle_ai_response(text_stripped, session, groq)
+    # AI response for unrecognized text with context
+    ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
     if ai_response:
+        # Store bot response in history
+        session["conversation_history"].append({
+            "role": "assistant",
+            "text": ai_response,
+            "timestamp": time.time()
+        })
         await tg_client.send_message(chat_id, ai_response)
     else:
-        await tg_client.send_message(chat_id, content.get_unknown_message(lang))
+        # Random response for unknown
+        random_fallback = get_random_response("unknown", lang)
+        await tg_client.send_message(chat_id, random_fallback + "\n\n" + content.get_unknown_message(lang))
 
 
 async def handle_whatsapp_update(

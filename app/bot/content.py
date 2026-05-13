@@ -3,6 +3,17 @@ UI Content for KOMEK DAMU bot.
 Russian and Kazakh languages supported.
 """
 
+# Language selection
+LANGUAGE_PROMPT_RU = "🌐 *Выберите язык / Тілді таңдаңыз:*"
+LANGUAGE_PROMPT_KK = "🌐 *Выберите язык / Тілді таңдаңыз:*"
+
+LANGUAGE_KEYBOARD = {
+    "inline_keyboard": [
+        [{"text": "🇷🇺 Русский", "callback_data": "lang:ru"}],
+        [{"text": "🇰🇿 Қазақша", "callback_data": "lang:kk"}],
+    ]
+}
+
 # Greetings
 GREETING_RU = (
     "Здравствуйте! Вас приветствует *KOMEK DAMU*\n\n"
@@ -156,6 +167,14 @@ WA_MORTGAGE_DIGIT_MAP = {
     "2": "mortgage_standard",
     "0": "back_to_main",
 }
+
+
+def get_language_prompt(lang: str = "ru") -> str:
+    return LANGUAGE_PROMPT_RU if lang == "ru" else LANGUAGE_PROMPT_KK
+
+
+def get_language_keyboard() -> dict:
+    return LANGUAGE_KEYBOARD
 
 
 def get_greeting(lang: str = "ru") -> str:
