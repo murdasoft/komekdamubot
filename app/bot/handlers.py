@@ -527,22 +527,43 @@ async def handle_telegram_update(
         selected_platform = text_stripped.split(":", 1)[1]
         session["platform"] = selected_platform
         session["state"] = "selecting_lang"
-        await send_with_keyboard(
-            content.get_language_prompt("ru"),
-            content.get_language_keyboard()
-        )
+        
+        if selected_platform == "wa":
+            # WhatsApp-style text menu with digits
+            wa_lang_menu = (
+                "🌐 *Выберите язык / Тілді таңдаңыз:*\n\n"
+                "1️⃣ Русский\n"
+                "2️⃣ Қазақша\n\n"
+                "*Напишите цифру 1 или 2*"
+            )
+            await tg_client.send_message(chat_id, wa_lang_menu)
+        else:
+            # Telegram buttons
+            await send_with_keyboard(
+                content.get_language_prompt("ru"),
+                content.get_language_keyboard()
+            )
         return
     
-    # Handle language selection callback
+    # Handle language selection callback (Telegram buttons)
     if callback_id and text_stripped.startswith("lang:"):
         await tg_client.answer_callback_query(callback_id)
         selected_lang = text_stripped.split(":", 1)[1]
         session["lang"] = selected_lang
         session["state"] = "idle"
-        platform = session.get("platform", "tg")
-        
-        # Show interface based on platform selection
-        if platform == "wa":
+        # Show Telegram interface with buttons
+        await send_with_keyboard(
+            content.get_greeting(selected_lang),
+            content.get_menu_keyboard(selected_lang)
+        )
+        return
+    
+    # Handle WhatsApp-style language selection (text input 1 or 2)
+    if session.get("state") == "selecting_lang" and session.get("platform") == "wa":
+        if text_stripped in ["1", "2"]:
+            selected_lang = "ru" if text_stripped == "1" else "kk"
+            session["lang"] = selected_lang
+            session["state"] = "idle"
             # Show WhatsApp demo with numeric menu
             wa_intro = (
                 "📱 *WhatsApp режим*\n\n"
@@ -553,13 +574,15 @@ async def handle_telegram_update(
                 "📞 `+7 701 2117340`"
             )
             await tg_client.send_message(chat_id, wa_intro)
+            return
         else:
-            # Show Telegram interface with buttons
-            await send_with_keyboard(
-                content.get_greeting(selected_lang),
-                content.get_menu_keyboard(selected_lang)
+            # Wrong input, remind
+            await tg_client.send_message(
+                chat_id,
+                "❌ *Напишите только цифру 1 или 2*\n"
+                "❌ *1 немесе 2 санын жазыңыз*"
             )
-        return
+            return
     
     # Handle operator request
     if any(word in text_stripped.lower() for word in ["оператор", "менеджер", "человек", "маман", "админ"]):
