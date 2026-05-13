@@ -247,7 +247,7 @@ async def _handle_ai_response(
     groq: GroqClient,
 ) -> str | None:
     """Get AI response for free-text queries."""
-    lang = session.get("lang", "ru")
+    lang = session.get("lang", "kk")
     system_prompt = get_system_prompt(lang)
     
     # Build context from knowledge base
@@ -274,7 +274,7 @@ async def _handle_ai_response_with_context(
     groq: GroqClient,
 ) -> str | None:
     """Get AI response with conversation history for context understanding."""
-    lang = session.get("lang", "ru")
+    lang = session.get("lang", "kk")
     system_prompt = get_system_prompt(lang)
     
     # Build context from knowledge base
@@ -314,7 +314,7 @@ async def _process_flow_step(
     """
     product_key = session.get("product")
     flow_step_key = session.get("flow_step")
-    lang = session.get("lang", "ru")
+    lang = session.get("lang", "kk")
     
     if not product_key or not flow_step_key:
         return False
@@ -345,7 +345,7 @@ async def _process_flow_step(
     
     # Check for payment delays - reject if yes
     if step.key == "has_delays" and validated_value == "да":
-        lang = session.get("lang", "ru")
+        lang = session.get("lang", "kk")
         reject_msg = (
             "❌ *К сожалению, мы не можем выдать кредит при наличии открытых просрочек.*\n\n"
             "Пожалуйста, закройте просрочки и обратитесь снова.\n\n"
@@ -384,7 +384,7 @@ async def _finish_flow(
 ):
     """Complete flow and send lead to manager."""
     product_key = session.get("product", "unknown")
-    lang = session.get("lang", "ru")
+    lang = session.get("lang", "kk")
     data = session.get("data", {})
     platform = session.get("platform", "telegram")
     
@@ -425,7 +425,7 @@ async def _start_product_flow(
         logger.error(f"No flow found for product: {product_key}")
         return
     
-    lang = session.get("lang", "ru")
+    lang = session.get("lang", "kk")
     first_step_key = get_first_step(flow)
     if not first_step_key:
         return
@@ -553,7 +553,7 @@ async def handle_telegram_update(
         if detected:
             session["lang"] = detected
     
-    lang = session.get("lang", "ru")
+    lang = session.get("lang", "kk")
     
     # Helper to send with keyboard
     async def send_with_keyboard(message: str, keyboard: Dict | None = None):
@@ -962,7 +962,7 @@ async def handle_whatsapp_update(
         if detected:
             session["lang"] = detected
     
-    lang = session.get("lang", "ru")
+    lang = session.get("lang", "kk")
     
     # Handle /start or menu commands
     if text_stripped in ["/start", "start", "меню", "мәзір", "menu"]:

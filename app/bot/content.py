@@ -261,7 +261,7 @@ WA_MORTGAGE_DIGIT_MAP = {
 }
 
 
-def get_platform_prompt(lang: str = "ru") -> str:
+def get_platform_prompt(lang: str = "kk") -> str:
     return PLATFORM_PROMPT_RU if lang == "ru" else PLATFORM_PROMPT_KK
 
 
@@ -269,7 +269,7 @@ def get_platform_keyboard() -> dict:
     return PLATFORM_KEYBOARD
 
 
-def get_language_prompt(lang: str = "ru") -> str:
+def get_language_prompt(lang: str = "kk") -> str:
     return LANGUAGE_PROMPT_RU if lang == "ru" else LANGUAGE_PROMPT_KK
 
 
@@ -277,41 +277,41 @@ def get_language_keyboard() -> dict:
     return LANGUAGE_KEYBOARD
 
 
-def get_greeting(lang: str = "ru") -> str:
+def get_greeting(lang: str = "kk") -> str:
     return GREETING_RU if lang == "ru" else GREETING_KK
 
 
-def get_menu_keyboard(lang: str = "ru") -> dict:
+def get_menu_keyboard(lang: str = "kk") -> dict:
     return MENU_KEYBOARD_RU if lang == "ru" else MENU_KEYBOARD_KK
 
 
-def get_mortgage_menu(lang: str = "ru") -> dict:
+def get_mortgage_menu(lang: str = "kk") -> dict:
     return MORTGAGE_MENU_RU if lang == "ru" else MORTGAGE_MENU_KK
 
 
-def get_whatsapp_demo(lang: str = "ru") -> str:
+def get_whatsapp_demo(lang: str = "kk") -> str:
     return WHATSAPP_DEMO_RU if lang == "ru" else WHATSAPP_DEMO_KK
 
 
-def get_wa_menu(lang: str = "ru") -> str:
+def get_wa_menu(lang: str = "kk") -> str:
     return WA_MENU_RU if lang == "ru" else WA_MENU_KK
 
 
-def get_wa_intro(lang: str = "ru") -> str:
+def get_wa_intro(lang: str = "kk") -> str:
     return WA_INTRO_RU if lang == "ru" else WA_INTRO_KK
 
 
-def get_wa_footer(lang: str = "ru") -> str:
+def get_wa_footer(lang: str = "kk") -> str:
     return WA_FOOTER_RU if lang == "ru" else WA_FOOTER_KK
 
 
-def get_wa_mortgage_menu(lang: str = "ru") -> str:
+def get_wa_mortgage_menu(lang: str = "kk") -> str:
     return WA_MORTGAGE_MENU_RU if lang == "ru" else WA_MORTGAGE_MENU_KK
 
 
-def get_operator_message(lang: str = "ru") -> str:
+def get_operator_message(lang: str = "kk") -> str:
     return OPERATOR_RU if lang == "ru" else OPERATOR_KK
 
 
-def get_unknown_message(lang: str = "ru") -> str:
+def get_unknown_message(lang: str = "kk") -> str:
     return UNKNOWN_RU if lang == "ru" else UNKNOWN_KK
