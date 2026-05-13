@@ -320,6 +320,6 @@ def get_unknown_message(lang: str = "ru") -> str:
 
 
 def add_wa_back_hint(message: str, lang: str = "ru") -> str:
-    """Add '0 - Назад' hint to WhatsApp messages."""
-    hint = "0 — Назад в главное меню" if lang == "ru" else "0 — Негізгі мәзірге оралу"
+    """Add '0 - Назад' and '99 - Язык' hints to WhatsApp messages."""
+    hint = "0 — Назад в главное меню\n99 — Сменить язык" if lang == "ru" else "0 — Негізгі мәзірге оралу\n99 — Тілді ауыстыру"
     return f"{message}\n\n{hint}"

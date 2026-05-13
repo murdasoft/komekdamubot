@@ -478,6 +478,18 @@ async def handle_telegram_update(
         )
         return
     
+    # Handle 99 for language selection
+    if text and text.strip() == "99":
+        session = await _get_session(chat_id)
+        session["state"] = "selecting_lang"
+        await save_session(chat_id, session)
+        await tg_client.send_message(
+            chat_id,
+            content.get_language_prompt("ru"),
+            reply_markup=content.get_language_keyboard()
+        )
+        return
+    
     session = await _get_session(chat_id)
     
     if sender_name:
@@ -987,6 +999,19 @@ async def handle_whatsapp_update(
     if text_stripped == "0":
         _reset_session(chat_id, "whatsapp")
         await send_wa_with_hint(content.get_wa_menu(lang))
+        return
+    
+    # Handle 99 for language selection
+    if text_stripped == "99":
+        session["state"] = "selecting_lang"
+        await save_session(chat_id, session)
+        wa_lang_menu = (
+            "🌐 *Выберите язык / Тілді таңдаңыз:*\n\n"
+            "1️⃣ Русский\n"
+            "2️⃣ Қазақша\n\n"
+            "*Напишите цифру 1 или 2*"
+        )
+        await send_wa_with_hint(wa_lang_menu)
         return
     
     # Handle operator request
