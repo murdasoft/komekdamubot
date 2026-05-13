@@ -777,12 +777,20 @@ async def handle_telegram_update(
                 "1": "personal_credit",
                 "2": "business_credit",
                 "3": "damu",
-                "4": "mortgage",
+                "4": "mortgage_menu",  # Changed to show submenu
                 "5": "refinancing",
                 "6": "complex_case",
                 "7": "operator",
             }
             product_key = tg_menu_map[text_stripped]
+            
+            # Special handling for mortgage submenu
+            if product_key == "mortgage_menu":
+                await send_with_keyboard(
+                    content.get_greeting(lang),
+                    content.get_mortgage_menu(lang)
+                )
+                return
             if product_key == "operator":
                 session["state"] = "handoff"
                 session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
