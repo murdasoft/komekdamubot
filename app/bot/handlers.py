@@ -971,6 +971,12 @@ async def handle_whatsapp_update(
         )
         return
     
+    # Handle 0 to return to main menu
+    if text_stripped == "0":
+        _reset_session(chat_id, "whatsapp")
+        await wa_client.send_message(chat_id, content.get_wa_menu(lang))
+        return
+    
     # Handle WA digit menu
     if session.get("state") == "idle" or session.get("state") == "wa_menu":
         # Check for mortgage submenu
