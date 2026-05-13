@@ -4,10 +4,10 @@ mangum==0.17.0
 uvicorn==0.27.1
 
 # HTTP client
-httpx==0.25.2
+httpx==0.24.1
 
 # Database
-supabase==2.3.4
+supabase==2.0.3
 
 # No additional ML libraries needed - using Groq API for LLM and STT
 
