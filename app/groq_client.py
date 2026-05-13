@@ -128,7 +128,7 @@ class GroqClient:
 
 
 # System prompts for different languages
-def get_system_prompt(lang: str = "kk") -> str:
+def get_system_prompt(lang: str = "ru") -> str:
     return (
         "Вы — AI-ассистент компании KOMEK DAMU. "
         "Вы даёте консультации по кредитам, ипотеке, программе DAMU и рефинансированию. "

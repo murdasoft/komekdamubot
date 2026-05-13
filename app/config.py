@@ -31,9 +31,6 @@ class Settings:
     groq_model: str = field(default_factory=lambda: _getenv("GROQ_MODEL", "llama-3.3-70b-versatile"))
     groq_stt_model: str = field(default_factory=lambda: _getenv("GROQ_STT_MODEL", "whisper-large-v3"))
     
-    # Default language
-    default_lang: str = field(default_factory=lambda: _getenv("DEFAULT_LANG", "kk"))
-    
     # Bitrix24
     bitrix24_webhook_url: str = field(default_factory=lambda: _getenv("BITRIX24_WEBHOOK_URL"))
     
