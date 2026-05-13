@@ -340,6 +340,22 @@ async def _process_flow_step(
     # Store validated data
     session["data"][step.key] = validated_value
     
+    # Check for payment delays - reject if yes
+    if step.key == "has_delays" and validated_value == "да":
+        lang = session.get("lang", "ru")
+        reject_msg = (
+            "❌ *К сожалению, мы не можем выдать кредит при наличии открытых просрочек.*\n\n"
+            "Пожалуйста, закройте просрочки и обратитесь снова.\n\n"
+            "Для сложных случаев нажмите 7 — «Связаться с оператором»."
+            if lang == "ru" else
+            "❌ *Кешігу бар болса, несие бере алмаймыз.*\n\n"
+            "Кешігуіңізді жабыңыз және қайтадан хабарласыңыз.\n\n"
+            "Күрделі жағдайлар үшін 7 басыңыз — «Оператормен байланыс»."
+        )
+        await send_message_func(reject_msg)
+        _reset_session(chat_id, session.get("platform", "telegram"))
+        return False
+    
     # Move to next step
     next_step_key = step.next_step
     if next_step_key == "done" or not next_step_key:
