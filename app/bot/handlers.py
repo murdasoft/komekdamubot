@@ -979,6 +979,12 @@ async def handle_whatsapp_update(
         await wa_client.send_message(chat_id, content.get_wa_menu(lang))
         return
     
+    # Handle 0 to return to main menu (check BEFORE flow)
+    if text_stripped == "0":
+        _reset_session(chat_id, "whatsapp")
+        await wa_client.send_message(chat_id, content.get_wa_menu(lang))
+        return
+    
     # Handle operator request
     if any(word in text_stripped.lower() for word in ["оператор", "менеджер", "человек", "маман", "7"]):
         session["state"] = "handoff"
@@ -989,12 +995,6 @@ async def handle_whatsapp_update(
             chat_id,
             "whatsapp"
         )
-        return
-    
-    # Handle 0 to return to main menu
-    if text_stripped == "0":
-        _reset_session(chat_id, "whatsapp")
-        await wa_client.send_message(chat_id, content.get_wa_menu(lang))
         return
     
     # Handle WA digit menu
