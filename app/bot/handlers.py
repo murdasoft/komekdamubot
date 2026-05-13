@@ -105,7 +105,11 @@ def _detect_language(text: str) -> str:
 
 
 def _get_session(chat_id: str) -> Dict:
-    return _sessions[chat_id]
+    session = _sessions[chat_id]
+    # Ensure conversation_history exists (for backward compatibility)
+    if "conversation_history" not in session:
+        session["conversation_history"] = []
+    return session
 
 
 def _reset_session(chat_id: str, platform: str = "telegram"):
