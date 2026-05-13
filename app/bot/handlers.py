@@ -619,26 +619,16 @@ async def handle_telegram_update(
             )
             await tg_client.send_message(chat_id, greeting)
         else:
-            # Telegram - skip language selection if already detected
-            if session.get("lang"):
-                session["state"] = "idle"
-                lang = session["lang"]
-                await send_with_keyboard(
-                    content.get_greeting(lang),
-                    content.get_menu_keyboard(lang)
-                )
-            else:
-                session["state"] = "selecting_lang"
-                await save_session(chat_id, session)
-                lang_prompt = (
-                    "🌐 *Выберите язык / Тілді таңдаңыз:*\n\n"
-                    "Или сразу напишите ваш вопрос — я отвечу на вашем языке\n"
-                    "Немесе сұрағыңызды жазыңыз — тіліңізде жауап беремін"
-                )
-                await send_with_keyboard(
-                    lang_prompt,
-                    content.get_language_keyboard()
-                )
+            # Telegram - go straight to AI chat, no menu
+            session["state"] = "idle"
+            await save_session(chat_id, session)
+            greeting = (
+                "Сәлеметсіз бе! Мен KOMEK DAMU компаниясының кеңесшісімін.\n"
+                "Несие, ипотека немесе қаржыландыру бойынша сұрағыңызды жазыңыз — көмектесемін.\n\n"
+                "Здравствуйте! Я консультант KOMEK DAMU.\n"
+                "Напишите ваш вопрос по кредиту, ипотеке или финансированию — помогу разобраться."
+            )
+            await tg_client.send_message(chat_id, greeting)
         return
     
     # Handle language selection callback (Telegram buttons)
@@ -662,10 +652,14 @@ async def handle_telegram_update(
             )
             await tg_client.send_message(chat_id, wa_intro)
         else:
-            await send_with_keyboard(
-                content.get_greeting(selected_lang),
-                content.get_menu_keyboard(selected_lang)
+            # Telegram - AI chat mode, no menu
+            greeting = (
+                "Сәлеметсіз бе! Мен KOMEK DAMU компаниясының кеңесшісімін.\n"
+                "Несие, ипотека немесе қаржыландыру бойынша сұрағыңызды жазыңыз — көмектесемін.\n\n"
+                "Здравствуйте! Я консультант KOMEK DAMU.\n"
+                "Напишите ваш вопрос по кредиту, ипотеке или финансированию — помогу разобраться."
             )
+            await tg_client.send_message(chat_id, greeting)
         return
     
     # Handle language selection state (Telegram)
@@ -813,6 +807,16 @@ async def handle_telegram_update(
         await save_session(chat_id, session)
         return
     
+    # Check if user asked for menu (any platform)
+    menu_keywords = ["меню", "menu", "мәзір", "список", "варианты", "нұсқалар", "/menu"]
+    if any(w in text_stripped.lower() for w in menu_keywords) and session.get("state") == "idle":
+        lang = session.get("lang", "ru")
+        if session.get("platform") == "wa":
+            await tg_client.send_message(chat_id, content.get_wa_menu(lang))
+        else:
+            await send_with_keyboard(content.get_greeting(lang), content.get_menu_keyboard(lang))
+        return
+
     # Log message to database
     platform = session.get("platform", "telegram")
     await log_message(chat_id, platform, "user", text_stripped, lang)
@@ -822,12 +826,6 @@ async def handle_telegram_update(
     if small_talk_intent and session.get("state") == "idle":
         response = get_random_response(small_talk_intent, lang)
         await tg_client.send_message(chat_id, response)
-        # If greeting, also show menu
-        if small_talk_intent == "greeting":
-            await send_with_keyboard(
-                content.get_greeting(lang),
-                content.get_menu_keyboard(lang)
-            )
         return
     
     # Telegram mode: AI response for any text (when not in flow)
