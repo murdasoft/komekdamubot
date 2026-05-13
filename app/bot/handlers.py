@@ -575,33 +575,13 @@ async def handle_telegram_update(
         session["platform"] = selected_platform
         await save_session(chat_id, session)
         
-        # If language already detected, skip language selection
-        if session.get("lang"):
-            session["state"] = "idle"
-            lang = session["lang"]
-            if selected_platform == "wa":
-                wa_intro = (
-                    f"📱 *WhatsApp режим*\n\n"
-                    "В WhatsApp используется текстовое меню с цифрами:\n\n"
-                    f"{content.get_wa_menu(lang)}\n\n"
-                    "*Напишите цифру от 1 до 7* или *отправьте голосовое сообщение*\n\n"
-                    "Перейти в WhatsApp:\n"
-                    "📞 `+7 701 2117340`"
-                )
-                await tg_client.send_message(chat_id, wa_intro)
-            else:
-                await send_with_keyboard(
-                    content.get_greeting(lang),
-                    content.get_menu_keyboard(lang)
-                )
-            return
-        
-        # Show language selection
-        session["state"] = "selecting_lang"
-        await save_session(chat_id, session)
-        
+        # Smart language selection:
+        # - WhatsApp (digits): always show language selection
+        # - Telegram (buttons): skip if language already detected
         if selected_platform == "wa":
-            # WhatsApp-style text menu with digits
+            # WhatsApp - always show language selection
+            session["state"] = "selecting_lang"
+            await save_session(chat_id, session)
             wa_lang_menu = (
                 "🌐 *Выберите язык / Тілді таңдаңыз:*\n\n"
                 "1️⃣ Русский\n"
@@ -610,11 +590,21 @@ async def handle_telegram_update(
             )
             await tg_client.send_message(chat_id, wa_lang_menu)
         else:
-            # Telegram buttons
-            await send_with_keyboard(
-                content.get_language_prompt("ru"),
-                content.get_language_keyboard()
-            )
+            # Telegram - skip language selection if already detected
+            if session.get("lang"):
+                session["state"] = "idle"
+                lang = session["lang"]
+                await send_with_keyboard(
+                    content.get_greeting(lang),
+                    content.get_menu_keyboard(lang)
+                )
+            else:
+                session["state"] = "selecting_lang"
+                await save_session(chat_id, session)
+                await send_with_keyboard(
+                    content.get_language_prompt("ru"),
+                    content.get_language_keyboard()
+                )
         return
     
     # Handle language selection callback (Telegram buttons)
