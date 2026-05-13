@@ -96,12 +96,13 @@ def _detect_language(text: str) -> str:
     if any(c in text for c in kazakh_chars):
         return "kk"
     
-    # Common Kazakh words
-    kazakh_words = ["сіз", "мен", "біз", "және", "болды", "қазақстан", "қазақ", "несие", "ипотека"]
+    # Common Kazakh words (expanded list)
+    kazakh_words = ["сіз", "мен", "біз", "және", "болды", "қазақстан", "қазақ", "несие", "ипотека",
+                     "салеметсіз", "рахмет", "қалай", "не", "бар", "жоқ", "көмектес", "алай", "әрі", "бәрі"]
     text_lower = text.lower()
     kazakh_score = sum(1 for w in kazakh_words if w in text_lower)
     
-    if kazakh_score >= 2:
+    if kazakh_score >= 1:  # Lowered threshold from 2 to 1
         return "kk"
     
     return "ru"
