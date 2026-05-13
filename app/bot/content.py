@@ -233,12 +233,14 @@ WA_INTRO_KK = (
 
 WA_FOOTER_RU = (
     "*Напишите цифру от 1 до 7* или *отправьте голосовое сообщение*\n\n"
+    "0 — Назад в главное меню\n\n"
     "Перейти в WhatsApp:\n"
     "📞 `+7 701 2117340`"
 )
 
 WA_FOOTER_KK = (
     "*1-ден 7-ге дейінгі санды жазыңыз* немесе *дауыстық хабарлама жіберіңіз*\n\n"
+    "0 — Негізгі мәзірге оралу\n\n"
     "WhatsApp-қа өту:\n"
     "📞 `+7 701 2117340`"
 )
@@ -315,3 +317,9 @@ def get_operator_message(lang: str = "ru") -> str:
 
 def get_unknown_message(lang: str = "ru") -> str:
     return UNKNOWN_RU if lang == "ru" else UNKNOWN_KK
+
+
+def add_wa_back_hint(message: str, lang: str = "ru") -> str:
+    """Add '0 - Назад' hint to WhatsApp messages."""
+    hint = "0 — Назад в главное меню" if lang == "ru" else "0 — Негізгі мәзірге оралу"
+    return f"{message}\n\n{hint}"

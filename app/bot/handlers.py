@@ -972,24 +972,28 @@ async def handle_whatsapp_update(
     
     lang = session.get("lang", "ru")
     
+    # Helper to send message with back hint
+    async def send_wa_with_hint(message: str):
+        await wa_client.send_message(chat_id, content.add_wa_back_hint(message, lang))
+    
     # Handle /start or menu commands
     if text_stripped in ["/start", "start", "меню", "мәзір", "menu"]:
         _reset_session(chat_id, "whatsapp")
         session["lang"] = lang
-        await wa_client.send_message(chat_id, content.get_wa_menu(lang))
+        await send_wa_with_hint(content.get_wa_menu(lang))
         return
     
     # Handle 0 to return to main menu (check BEFORE flow)
     if text_stripped == "0":
         _reset_session(chat_id, "whatsapp")
-        await wa_client.send_message(chat_id, content.get_wa_menu(lang))
+        await send_wa_with_hint(content.get_wa_menu(lang))
         return
     
     # Handle operator request
     if any(word in text_stripped.lower() for word in ["оператор", "менеджер", "человек", "маман", "7"]):
         session["state"] = "handoff"
         session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
-        await wa_client.send_message(chat_id, content.get_operator_message(lang))
+        await send_wa_with_hint(content.get_operator_message(lang))
         await _notify_manager(
             f"🚨 *Запрос оператора (WhatsApp)*\nPhone: `{chat_id}`\nСообщение: {text_stripped}",
             chat_id,
@@ -1004,13 +1008,13 @@ async def handle_whatsapp_update(
             mapped = content.WA_MORTGAGE_DIGIT_MAP.get(text_stripped)
             if mapped == "back_to_main":
                 session["submenu"] = None
-                await wa_client.send_message(chat_id, content.get_wa_menu(lang))
+                await send_wa_with_hint(content.get_wa_menu(lang))
                 return
             elif mapped:
                 session["submenu"] = None
                 await _start_product_flow(
                     chat_id, mapped, session,
-                    lambda m: wa_client.send_message(chat_id, m)
+                    lambda m: send_wa_with_hint(m)
                 )
                 return
         
@@ -1018,17 +1022,17 @@ async def handle_whatsapp_update(
         mapped = content.WA_DIGIT_MAP.get(text_stripped)
         if mapped == "mortgage_menu":
             session["submenu"] = "mortgage"
-            await wa_client.send_message(chat_id, content.get_wa_mortgage_menu(lang))
+            await send_wa_with_hint(content.get_wa_mortgage_menu(lang))
             return
         elif mapped == "operator":
             session["state"] = "handoff"
             session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
-            await wa_client.send_message(chat_id, content.get_operator_message(lang))
+            await send_wa_with_hint(content.get_operator_message(lang))
             return
         elif mapped:
             await _start_product_flow(
                 chat_id, mapped, session,
-                lambda m: wa_client.send_message(chat_id, m)
+                lambda m: send_wa_with_hint(m)
             )
             return
     
@@ -1036,7 +1040,7 @@ async def handle_whatsapp_update(
     if session.get("state") == "in_flow" and session.get("product"):
         await _process_flow_step(
             chat_id, text_stripped, session,
-            lambda m: wa_client.send_message(chat_id, m),
+            lambda m: send_wa_with_hint(m),
             groq
         )
         return
@@ -1046,9 +1050,9 @@ async def handle_whatsapp_update(
     if intent:
         await _start_product_flow(
             chat_id, intent, session,
-            lambda m: wa_client.send_message(chat_id, m)
+            lambda m: send_wa_with_hint(m)
         )
         return
     
     # Unknown - send menu
-    await wa_client.send_message(chat_id, content.get_wa_menu(lang))
+    await send_wa_with_hint(content.get_wa_menu(lang))
