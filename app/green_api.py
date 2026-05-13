@@ -26,10 +26,12 @@ class GreenApiClient:
         url = f"{self.base_url}/sendMessage/{self.token}"
         # Normalize phone
         phone_clean = phone.replace("+", "").replace(" ", "").replace("-", "")
+        chat_id = f"{phone_clean}@c.us"
         payload = {
-            "chatId": f"{phone_clean}@c.us",
+            "chatId": chat_id,
             "message": message,
         }
+        logger.info(f"Sending WhatsApp message to: {chat_id}")
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 r = await client.post(url, json=payload, headers=self._auth())

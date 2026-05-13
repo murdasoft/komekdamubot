@@ -526,9 +526,13 @@ async def handle_whatsapp_update(
 ):
     """Handle WhatsApp (Green API) webhook update."""
     from app.green_api import extract_green_info, is_voice_message
+    import logging
+    logger = logging.getLogger(__name__)
     
     chat_id, text, sender_name, media_url = extract_green_info(body)
+    logger.info(f"handle_whatsapp_update: chat_id={chat_id}, text={text}, sender={sender_name}")
     if not chat_id:
+        logger.warning("No chat_id extracted from body")
         return
     
     session = _get_session(chat_id)

@@ -171,7 +171,13 @@ async def whatsapp_webhook(
         raise HTTPException(status_code=503, detail="WhatsApp not configured")
     
     body = await request.json()
-    logger.debug(f"WhatsApp update: {body}")
+    logger.info(f"WhatsApp body: {body}")
+    
+    # Extract sender info for debugging
+    sender_data = body.get("senderData", {})
+    chat_id = sender_data.get("chatId", "unknown")
+    sender_name = sender_data.get("senderName", "unknown")
+    logger.info(f"Message from: {chat_id} ({sender_name})")
     
     # Green API sends different event types
     # We only care about incoming messages
