@@ -90,19 +90,21 @@ def detect_small_talk_intent(text: str) -> str | None:
 
 
 def _detect_language(text: str) -> str:
-    """Detect if text is Kazakh or Russian."""
+    """Detect if text is Kazakh or Russian. For mixed language, default to Kazakh."""
     # Kazakh-specific characters
     kazakh_chars = set("әіңғүұқөһӘІҢҒҮҰҚӨҺ")
     if any(c in text for c in kazakh_chars):
         return "kk"
     
-    # Common Kazakh words (expanded list)
+    # Common Kazakh words (expanded list for шала-казахский)
     kazakh_words = ["сіз", "мен", "біз", "және", "болды", "қазақстан", "қазақ", "несие", "ипотека",
-                     "салеметсіз", "рахмет", "қалай", "не", "бар", "жоқ", "көмектес", "алай", "әрі", "бәрі"]
+                     "салеметсіз", "рахмет", "қалай", "не", "бар", "жоқ", "көмектес", "алай", "әрі", "бәрі",
+                     "дейін", "үшін", "бірге", "сонымен", "бірақ", "сондай", "әрине", "жаса", "қыл"]
     text_lower = text.lower()
     kazakh_score = sum(1 for w in kazakh_words if w in text_lower)
     
-    if kazakh_score >= 1:  # Lowered threshold from 2 to 1
+    # For mixed language (шала-казахский): ANY Kazakh word = Kazakh
+    if kazakh_score >= 1:
         return "kk"
     
     return "ru"
