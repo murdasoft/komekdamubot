@@ -466,6 +466,18 @@ async def handle_telegram_update(
         return
     
     msg_id = get_message_id(body)
+    
+    # Handle /start immediately without loading session
+    if text and text.strip() in ["/start", "/menu", "меню", "главное меню", "басты мәзір"]:
+        _reset_session(chat_id, "telegram")
+        # Show platform selection first
+        await tg_client.send_message(
+            chat_id,
+            content.get_platform_prompt("ru"),
+            reply_markup=content.get_platform_keyboard()
+        )
+        return
+    
     session = await _get_session(chat_id)
     
     if sender_name:
