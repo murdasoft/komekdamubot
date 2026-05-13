@@ -624,12 +624,9 @@ async def handle_telegram_update(
         # Show interface based on platform selection
         if platform == "wa":
             wa_intro = (
-                "📱 *WhatsApp режим*\n\n"
-                "В WhatsApp используется текстовое меню с цифрами:\n\n"
+                f"{content.get_wa_intro(selected_lang)}"
                 f"{content.get_wa_menu(selected_lang)}\n\n"
-                "*Напишите цифру от 1 до 7* или *отправьте голосовое сообщение*\n\n"
-                "Перейти в WhatsApp:\n"
-                "📞 `+7 701 2117340`"
+                f"{content.get_wa_footer(selected_lang)}"
             )
             await tg_client.send_message(chat_id, wa_intro)
         else:
@@ -645,14 +642,12 @@ async def handle_telegram_update(
             selected_lang = "ru" if text_stripped == "1" else "kk"
             session["lang"] = selected_lang
             session["state"] = "idle"
+            await save_session(chat_id, session)
             # Show WhatsApp demo with numeric menu
             wa_intro = (
-                "📱 *WhatsApp режим*\n\n"
-                "В WhatsApp используется текстовое меню с цифрами:\n\n"
+                f"{content.get_wa_intro(selected_lang)}"
                 f"{content.get_wa_menu(selected_lang)}\n\n"
-                "*Напишите цифру от 1 до 7* или *отправьте голосовое сообщение*\n\n"
-                "Перейти в WhatsApp:\n"
-                "📞 `+7 701 2117340`"
+                f"{content.get_wa_footer(selected_lang)}"
             )
             await tg_client.send_message(chat_id, wa_intro)
             return

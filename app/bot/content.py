@@ -214,11 +214,33 @@ WA_MORTGAGE_MENU_RU = (
 )
 
 WA_MORTGAGE_MENU_KK = (
-    "🏠 *Ипотека*\n\n"
-    "1️⃣ Мемлекеттік (2-9%)\n"
-    "2️⃣ Қарапайым ипотека\n"
+    "🏠 Ипотека мәзірі\n\n"
+    "1️⃣ Әкіметтік ипотека\n"
+    "2️⃣ Стандартты ипотека\n"
     "0️⃣ Негізгі мәзірге оралу\n\n"
     "Санды жазыңыз:"
+)
+
+WA_INTRO_RU = (
+    "📱 *WhatsApp режим*\n\n"
+    "В WhatsApp используется текстовое меню с цифрами:\n\n"
+)
+
+WA_INTRO_KK = (
+    "📱 *WhatsApp режим*\n\n"
+    "WhatsApp мәтіндік мәзір қолданады:\n\n"
+)
+
+WA_FOOTER_RU = (
+    "*Напишите цифру от 1 до 7* или *отправьте голосовое сообщение*\n\n"
+    "Перейти в WhatsApp:\n"
+    "📞 `+7 701 2117340`"
+)
+
+WA_FOOTER_KK = (
+    "*1-ден 7-ге дейінгі санды жазыңыз* немесе *дауыстық хабарлама жіберіңіз*\n\n"
+    "WhatsApp-қа өту:\n"
+    "📞 `+7 701 2117340`"
 )
 
 # Map WA digits to product keys
@@ -273,6 +295,14 @@ def get_whatsapp_demo(lang: str = "ru") -> str:
 
 def get_wa_menu(lang: str = "ru") -> str:
     return WA_MENU_RU if lang == "ru" else WA_MENU_KK
+
+
+def get_wa_intro(lang: str = "ru") -> str:
+    return WA_INTRO_RU if lang == "ru" else WA_INTRO_KK
+
+
+def get_wa_footer(lang: str = "ru") -> str:
+    return WA_FOOTER_RU if lang == "ru" else WA_FOOTER_KK
 
 
 def get_wa_mortgage_menu(lang: str = "ru") -> str:
