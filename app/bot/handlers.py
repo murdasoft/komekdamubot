@@ -584,6 +584,47 @@ async def handle_telegram_update(
             )
             return
     
+    # Handle WhatsApp menu digits (1-7) or AI response for any text
+    if session.get("platform") == "wa" and session.get("state") == "idle":
+        # Check if it's a menu digit
+        wa_menu_map = {
+            "1": "personal_credit",
+            "2": "business_credit",
+            "3": "damu",
+            "4": "mortgage",
+            "5": "refinancing",
+            "6": "complex_case",
+            "7": "operator",
+        }
+        
+        if text_stripped in wa_menu_map:
+            product_key = wa_menu_map[text_stripped]
+            if product_key == "operator":
+                session["state"] = "handoff"
+                session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
+                await tg_client.send_message(chat_id, content.get_operator_message(lang))
+                await _notify_manager(
+                    f"🚨 *Запрос оператора*\nChat: `{chat_id}`\nПлатформа: WhatsApp",
+                    chat_id,
+                    "telegram"
+                )
+            else:
+                await _start_product_flow(chat_id, product_key, session, lambda m: tg_client.send_message(chat_id, m))
+            return
+        else:
+            # AI response for any other text in WhatsApp mode
+            ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
+            if ai_response:
+                session["conversation_history"].append({
+                    "role": "assistant",
+                    "text": ai_response,
+                    "timestamp": time.time()
+                })
+                await tg_client.send_message(chat_id, ai_response)
+            else:
+                await tg_client.send_message(chat_id, content.get_unknown_message(lang))
+            return
+    
     # Handle operator request
     if any(word in text_stripped.lower() for word in ["оператор", "менеджер", "человек", "маман", "админ"]):
         session["state"] = "handoff"
@@ -617,6 +658,48 @@ async def handle_telegram_update(
                 content.get_menu_keyboard(lang)
             )
         return
+    
+    # Telegram mode: AI response for any text (when not in flow)
+    platform = session.get("platform", "tg")
+    if platform == "tg" and session.get("state") == "idle" and not callback_id:
+        # Check if text looks like menu number
+        if text_stripped in ["1", "2", "3", "4", "5", "6", "7"]:
+            # Map to product and start flow
+            tg_menu_map = {
+                "1": "personal_credit",
+                "2": "business_credit",
+                "3": "damu",
+                "4": "mortgage",
+                "5": "refinancing",
+                "6": "complex_case",
+                "7": "operator",
+            }
+            product_key = tg_menu_map[text_stripped]
+            if product_key == "operator":
+                session["state"] = "handoff"
+                session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
+                await tg_client.send_message(chat_id, content.get_operator_message(lang))
+                await _notify_manager(
+                    f"🚨 *Запрос оператора*\nChat: `{chat_id}`\nПлатформа: Telegram",
+                    chat_id,
+                    "telegram"
+                )
+            else:
+                await _start_product_flow(chat_id, product_key, session, lambda m: tg_client.send_message(chat_id, m))
+            return
+        else:
+            # AI response with context
+            ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
+            if ai_response:
+                session["conversation_history"].append({
+                    "role": "assistant",
+                    "text": ai_response,
+                    "timestamp": time.time()
+                })
+                await tg_client.send_message(chat_id, ai_response)
+            else:
+                await tg_client.send_message(chat_id, content.get_unknown_message(lang))
+            return
     
     # Handle callback queries (button clicks)
     if callback_id and text_stripped.startswith(("product:", "menu:", "action:", "lang:", "platform:")):
