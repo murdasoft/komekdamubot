@@ -716,13 +716,7 @@ async def handle_telegram_update(
                     detected_lang = _detect_lang(transcribed)
                     session["lang"] = detected_lang
                     text = transcribed
-                    # Confirm transcription
-                    confirm_msg = (
-                        f"🎤 *Распознано:* {transcribed}"
-                        if detected_lang == "ru" else
-                        f"🎤 *Танылды:* {transcribed}"
-                    )
-                    await tg_client.send_message(chat_id, confirm_msg)
+                    # Transcription used internally — not sent to client
                 else:
                     await tg_client.send_message(
                         chat_id,
@@ -1023,13 +1017,7 @@ async def handle_whatsapp_update(
                 if transcribed:
                     session["lang"] = detected_lang
                     text = transcribed
-                    # Send confirmation
-                    confirm_msg = (
-                        f"🎤 Распознано: {transcribed}"
-                        if detected_lang == "ru" else
-                        f"🎤 Танылды: {transcribed}"
-                    )
-                    await wa_client.send_message(chat_id, confirm_msg)
+                    # Transcription used internally — not sent to client
     
     if not text:
         return
