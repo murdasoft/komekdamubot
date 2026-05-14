@@ -228,16 +228,32 @@ async def _send_to_bitrix24(data: Dict, product_key: str, chat_id: str, lang: st
         logger.exception("Bitrix24 send failed: %s", e)
 
 
-async def _notify_manager(message: str, chat_id: str, platform: str = "telegram"):
-    """Send notification to manager via Telegram."""
+async def _notify_manager(message: str, chat_id: str, platform: str = "telegram", session: Dict | None = None):
+    """Send notification to manager via Telegram with reply instructions."""
     settings = get_settings()
     if not settings.telegram_alert_chat_id or not settings.telegram_bot_token:
         return
     
     from app.telegram_api import TelegramClient
-    
     api = TelegramClient(settings.telegram_bot_token)
-    full_message = f"{message}\n\n👤 Chat ID: `{chat_id}`\n📱 Platform: {platform}"
+    
+    # Build history snippet
+    history_text = ""
+    if session:
+        history = session.get("conversation_history", [])[-5:]
+        if history:
+            lines = []
+            for m in history:
+                role = "👤" if m["role"] == "user" else "🤖"
+                lines.append(f"{role} {m['text'][:100]}")
+            history_text = "\n\n📜 *Последние сообщения:*\n" + "\n".join(lines)
+    
+    full_message = (
+        f"{message}"
+        f"\n\n👤 Chat ID: `{chat_id}`\n📱 Platform: {platform}"
+        f"{history_text}"
+        f"\n\n💬 *Чтобы ответить пользователю:*\n`/reply {chat_id} ваш текст`"
+    )
     await api.send_message(settings.telegram_alert_chat_id, full_message)
 
 
@@ -511,6 +527,25 @@ async def handle_telegram_update(
     
     msg_id = get_message_id(body)
     
+    # Handle /reply command from manager (proxy reply to user)
+    if text and text.strip().startswith("/reply "):
+        settings = get_settings()
+        # Only allow from manager chat
+        if str(chat_id) == str(settings.telegram_alert_chat_id):
+            parts = text.strip().split(" ", 2)
+            if len(parts) >= 3:
+                target_chat_id = parts[1]
+                reply_text = parts[2]
+                try:
+                    await tg_client.send_message(target_chat_id, f"👨‍💼 {reply_text}")
+                    await tg_client.send_message(chat_id, f"✅ Отправлено пользователю {target_chat_id}")
+                    logger.info(f"Manager reply sent to {target_chat_id}")
+                except Exception as e:
+                    await tg_client.send_message(chat_id, f"❌ Ошибка: {e}")
+            else:
+                await tg_client.send_message(chat_id, "Формат: /reply CHAT_ID текст")
+        return
+
     # Handle /start immediately without loading session
     if text and text.strip() in ["/start", "/menu", "меню", "главное меню", "басты мәзір"]:
         if not chat_id or chat_id == "None":
@@ -660,7 +695,8 @@ async def handle_telegram_update(
                 await _notify_manager(
                     f"🚨 *Запрос оператора*\nChat: `{chat_id}`\nПлатформа: WhatsApp",
                     chat_id,
-                    "telegram"
+                    "telegram",
+                    session=session
                 )
             else:
                 await _start_product_flow(chat_id, product_key, session, lambda m: tg_client.send_message(chat_id, m))
@@ -708,7 +744,8 @@ async def handle_telegram_update(
         await _notify_manager(
             f"🚨 *Запрос оператора*\nChat: `{chat_id}`\nСообщение: {text_stripped}",
             chat_id,
-            "telegram"
+            "telegram",
+            session=session
         )
         return
     
@@ -733,7 +770,8 @@ async def handle_telegram_update(
         await _notify_manager(
             f"🚨 *Авто-передача менеджеру (3 сообщения)*\nЧат: `{chat_id}`\nПлатформа: {platform}\nПоследнее сообщение: {text_stripped[:100]}...",
             chat_id,
-            "telegram"
+            "telegram",
+            session=session
         )
         await save_session(chat_id, session)
         return
@@ -806,7 +844,8 @@ async def handle_telegram_update(
                 await _notify_manager(
                     f"🚨 *Запрос оператора*\nChat: `{chat_id}`\nПлатформа: Telegram",
                     chat_id,
-                    "telegram"
+                    "telegram",
+                    session=session
                 )
             else:
                 await _start_product_flow(chat_id, product_key, session, lambda m: tg_client.send_message(chat_id, m))
@@ -1006,7 +1045,8 @@ async def handle_whatsapp_update(
         await _notify_manager(
             f"🚨 *Запрос оператора (WhatsApp)*\nPhone: `{chat_id}`\nСообщение: {text_stripped}",
             chat_id,
-            "whatsapp"
+            "whatsapp",
+            session=session
         )
         return
     
