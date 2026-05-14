@@ -616,23 +616,9 @@ async def handle_telegram_update(
     if sender_name:
         session["contact_name"] = sender_name
     
-    # Check if dialog already done — client directed to office
+    # After office redirect — always reset and answer, never stay silent
     if session.get("state") == "office_directed" and text_stripped not in ["/start", "/menu"]:
-        # If new question/topic — reset and answer again
-        new_question_signals = ["?", "керек", "хочу", "можно", "как", "кредит",
-                                 "ипотека", "несие", "даму", "рефинанс"]
-        is_new_question = any(s in text_stripped.lower() for s in new_question_signals)
-        if is_new_question:
-            session["state"] = "idle"
-        else:
-            office_msg = (
-                "Для полной консультации приходите в наш офис. Адрес: г. Алматы, [адрес офиса]."
-                if lang == "ru" else
-                "Толық кеңес алу үшін офисімізге келіңіз. Мекенжай: Алматы қ., [офис мекенжайы]."
-            )
-            await tg_client.send_message(chat_id, office_msg)
-            await save_session(chat_id, session)
-            return
+        session["state"] = "idle"
 
     # Check handoff
     if _is_handoff_active(session):
