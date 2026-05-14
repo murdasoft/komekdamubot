@@ -331,16 +331,53 @@ def _detect_lang(text: str) -> str:
     return "ru"
 
 
+def _update_session_lang(text: str, session: Dict) -> str:
+    """
+    Sticky language: session lang only switches after 3 consecutive messages in another language.
+    If no lang set yet — detect and ask via ASK_LANG signal if ambiguous.
+    """
+    detected = _detect_lang(text)
+    current_lang = session.get("lang")
+
+    if not current_lang:
+        # First message — set immediately
+        session["lang"] = detected
+        session["lang_streak"] = 1
+        return detected
+
+    if detected == current_lang:
+        # Same lang — reset counter
+        session["lang_streak"] = 1
+        return current_lang
+
+    # Different lang detected — increment streak
+    streak = session.get("lang_streak", 1)
+    if detected != current_lang:
+        if session.get("lang_streak_candidate") == detected:
+            streak += 1
+        else:
+            streak = 1
+        session["lang_streak_candidate"] = detected
+        session["lang_streak"] = streak
+
+    if streak >= 3:
+        # Switch confirmed
+        session["lang"] = detected
+        session["lang_streak"] = 1
+        session.pop("lang_streak_candidate", None)
+        return detected
+
+    # Not enough streak — keep current lang
+    return current_lang
+
+
 async def _handle_ai_response_with_context(
     text: str,
     session: Dict,
     groq: GroqClient,
 ) -> str | None:
     """Get AI response with conversation history for context understanding."""
-    # Always detect lang from current message — fully overrides session lang
-    detected = _detect_lang(text)
-    session["lang"] = detected
-    lang = detected
+    lang = _update_session_lang(text, session)
     system_prompt = get_system_prompt(lang)
     
     # Build context from knowledge base
