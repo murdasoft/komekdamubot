@@ -322,6 +322,11 @@ def _detect_lang(text: str) -> str:
                 "болады", "келіңіз", "офисіміз"]
     if any(stem in lower for stem in kk_stems):
         return "kk"
+    # Transliterated kazakh greetings/words (no special chars)
+    kk_translit = ["салеметсезбе", "саламетсызба", "салем", "рахмет", "жаксы",
+                   "кайда", "канша", "несие", "болады", "керек"]
+    if any(t in lower for t in kk_translit):
+        return "kk"
 
     return "ru"
 
@@ -613,14 +618,21 @@ async def handle_telegram_update(
     
     # Check if dialog already done — client directed to office
     if session.get("state") == "office_directed" and text_stripped not in ["/start", "/menu"]:
-        office_msg = (
-            "Для полной консультации приходите в наш офис. Адрес: г. Алматы, [адрес офиса]."
-            if lang == "ru" else
-            "Толық кеңес алу үшін офисімізге келіңіз. Мекенжай: Алматы қ., [офис мекенжайы]."
-        )
-        await tg_client.send_message(chat_id, office_msg)
-        await save_session(chat_id, session)
-        return
+        # If new question/topic — reset and answer again
+        new_question_signals = ["?", "керек", "хочу", "можно", "как", "кредит",
+                                 "ипотека", "несие", "даму", "рефинанс"]
+        is_new_question = any(s in text_stripped.lower() for s in new_question_signals)
+        if is_new_question:
+            session["state"] = "idle"
+        else:
+            office_msg = (
+                "Для полной консультации приходите в наш офис. Адрес: г. Алматы, [адрес офиса]."
+                if lang == "ru" else
+                "Толық кеңес алу үшін офисімізге келіңіз. Мекенжай: Алматы қ., [офис мекенжайы]."
+            )
+            await tg_client.send_message(chat_id, office_msg)
+            await save_session(chat_id, session)
+            return
 
     # Check handoff
     if _is_handoff_active(session):
