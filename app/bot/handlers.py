@@ -617,7 +617,7 @@ async def handle_telegram_update(
         session["contact_name"] = sender_name
     
     # After office redirect — always reset and answer, never stay silent
-    if session.get("state") == "office_directed" and text_stripped not in ["/start", "/menu"]:
+    if session.get("state") == "office_directed" and (text or "").strip() not in ["/start", "/menu"]:
         session["state"] = "idle"
 
     # Check handoff
