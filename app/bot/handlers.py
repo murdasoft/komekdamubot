@@ -285,21 +285,44 @@ async def _handle_ai_response(
 
 
 def _detect_lang(text: str) -> str:
-    """Detect language from text using Kazakh-specific characters and words."""
+    """Detect language from text. Russian wins if mixed — only pure Kazakh triggers kk."""
+    lower = text.lower()
+    words = set(lower.split())
+
+    # Strong Russian signals — if present, it's Russian regardless
+    ru_chars = set('ёъэ')  # ы removed: exists in Kazakh too
+    if any(c in lower for c in ru_chars):
+        return "ru"
+    # Common Russian-only words
+    ru_words = {"здравствуйте", "привет", "хочу", "можно", "нужно", "мне", "как",
+                "что", "это", "есть", "не", "да", "нет", "хорошо", "спасибо",
+                "взять", "оформить", "получить", "узнать", "сколько", "какой",
+                "ваш", "наш", "для", "при", "без", "под", "про", "или"}
+    if len(words & ru_words) >= 1:
+        return "ru"
+
+    # Kazakh-specific characters
     kk_chars = set('әіңғүұқөһ')
-    if any(c in text.lower() for c in kk_chars):
+    if any(c in lower for c in kk_chars):
         return "kk"
+
+    # Kazakh-specific words (exact)
     kk_words = {
-        "керек", "бар", "жоқ", "алу", "беру", "болды", "несие", "ипотека",
-        "береспа", "аламын", "болады", "қажет", "мен", "сіз", "біз",
-        "маған", "саған", "оған", "бізге", "сізге", "қалай", "неше", "қанша",
-        "салеметсізбе", "сәлем", "рахмет", "жақсы", "иә", "жоқ", "өтінем",
-        "кредит", "даму", "қарыз", "пайыз", "мерзім", "құжат", "офис",
-        "бола", "болса", "алсам", "берсе", "келсем", "барсам"
+        "керек", "жоқ", "алу", "беру", "болды", "береспа", "аламын",
+        "болады", "маған", "саған", "оған", "бізге", "сізге", "қалай",
+        "неше", "қанша", "салеметсізбе", "сәлем", "рахмет", "жақсы",
+        "иә", "өтінем", "қарыз", "пайыз", "мерзім", "құжат",
+        "бола", "болса", "алсам", "берсе", "келсем", "барсам",
+        "несие", "даму"
     }
-    words = set(text.lower().split())
     if len(words & kk_words) >= 1:
         return "kk"
+    # Kazakh suffix forms (substrings)
+    kk_stems = ["бойынша", "алуға", "беруге", "болуға", "несие", "орайынша",
+                "болады", "келіңіз", "офисіміз"]
+    if any(stem in lower for stem in kk_stems):
+        return "kk"
+
     return "ru"
 
 
@@ -309,13 +332,10 @@ async def _handle_ai_response_with_context(
     groq: GroqClient,
 ) -> str | None:
     """Get AI response with conversation history for context understanding."""
-    # Always detect lang from current message — override stored lang
+    # Always detect lang from current message — fully overrides session lang
     detected = _detect_lang(text)
-    if detected == "kk":
-        session["lang"] = "kk"
-    elif not session.get("lang"):
-        session["lang"] = "ru"
-    lang = session["lang"]
+    session["lang"] = detected
+    lang = detected
     system_prompt = get_system_prompt(lang)
     
     # Build context from knowledge base
