@@ -497,19 +497,19 @@ async def handle_telegram_update(
         if not chat_id or chat_id == "None":
             logger.error(f"Invalid chat_id for /start: {chat_id}")
             return
-        _reset_session(chat_id, "telegram")
-        # Also persist reset to Supabase so next request sees clean state
+        _reset_session(chat_id, "tg")
+        _sessions[chat_id]["state"] = "idle"
+        _sessions[chat_id]["platform"] = "tg"
         await save_session(chat_id, _sessions[chat_id])
-        # Show platform selection first
-        msg_text = content.get_platform_prompt("ru")
-        keyboard = content.get_platform_keyboard()
-        logger.info(f"Sending /start response to chat_id={chat_id}")
+        greeting = (
+            "Сәлеметсіз бе! Мен KOMEK DAMU компаниясының кеңесшісімін.\n"
+            "Несие, ипотека немесе қаржыландыру бойынша сұрағыңызды жазыңыз — көмектесемін.\n\n"
+            "Здравствуйте! Я консультант KOMEK DAMU.\n"
+            "Напишите ваш вопрос по кредиту, ипотеке или финансированию — помогу разобраться."
+        )
+        logger.info(f"Sending /start greeting to chat_id={chat_id}")
         try:
-            await tg_client.send_message(
-                chat_id,
-                msg_text,
-                reply_markup=keyboard
-            )
+            await tg_client.send_message(chat_id, greeting)
         except Exception as e:
             logger.error(f"Failed to send /start response: {e}")
         return
@@ -613,127 +613,9 @@ async def handle_telegram_update(
     async def send_with_keyboard(message: str, keyboard: Dict | None = None):
         await tg_client.send_message(chat_id, message, reply_markup=keyboard)
     
-    # Handle /start or menu return
+    # Handle /start or menu return (already handled above, but catch duplicates from session-loaded path)
     if text_stripped in ["/start", "/menu", "меню", "главное меню", "басты мәзір"]:
-        _reset_session(chat_id, "telegram")
-        # Show platform selection first
-        session["state"] = "selecting_platform"
-        await send_with_keyboard(
-            content.get_platform_prompt("ru"),
-            content.get_platform_keyboard()
-        )
         return
-    
-    # Handle platform selection callback
-    if callback_id and text_stripped.startswith("platform:"):
-        await tg_client.answer_callback_query(callback_id)
-        selected_platform = text_stripped.split(":", 1)[1]
-        session["platform"] = selected_platform
-        await save_session(chat_id, session)
-        
-        # Smart language selection:
-        # - WhatsApp (digits): always show language selection
-        # - Telegram (buttons): skip if language already detected
-        if selected_platform == "wa":
-            # WhatsApp - skip menu, go straight to AI chat mode
-            session["state"] = "idle"
-            await save_session(chat_id, session)
-            greeting = (
-                "Сәлеметсіз бе! Мен KOMEK DAMU компаниясының кеңесшісімін.\n"
-                "Несие, ипотека немесе қаржыландыру бойынша сұрағыңызды жазыңыз — көмектесемін.\n\n"
-                "Здравствуйте! Я консультант KOMEK DAMU.\n"
-                "Напишите ваш вопрос по кредиту, ипотеке или финансированию — помогу разобраться."
-            )
-            await tg_client.send_message(chat_id, greeting)
-        else:
-            # Telegram - go straight to AI chat, no menu
-            session["state"] = "idle"
-            await save_session(chat_id, session)
-            greeting = (
-                "Сәлеметсіз бе! Мен KOMEK DAMU компаниясының кеңесшісімін.\n"
-                "Несие, ипотека немесе қаржыландыру бойынша сұрағыңызды жазыңыз — көмектесемін.\n\n"
-                "Здравствуйте! Я консультант KOMEK DAMU.\n"
-                "Напишите ваш вопрос по кредиту, ипотеке или финансированию — помогу разобраться."
-            )
-            await tg_client.send_message(chat_id, greeting)
-        return
-    
-    # Handle language selection callback (Telegram buttons)
-    if callback_id and text_stripped.startswith("lang:"):
-        await tg_client.answer_callback_query(callback_id)
-        selected_lang = text_stripped.split(":", 1)[1]
-        session["lang"] = selected_lang
-        session["state"] = "idle"
-        
-        # Save session after language selection
-        await save_session(chat_id, session)
-        
-        platform = session.get("platform", "tg")
-        
-        # Show interface based on platform selection
-        if platform == "wa":
-            wa_intro = (
-                f"{content.get_wa_intro(selected_lang)}"
-                f"{content.get_wa_menu(selected_lang)}\n\n"
-                f"{content.get_wa_footer(selected_lang)}"
-            )
-            await tg_client.send_message(chat_id, wa_intro)
-        else:
-            # Telegram - AI chat mode, no menu
-            greeting = (
-                "Сәлеметсіз бе! Мен KOMEK DAMU компаниясының кеңесшісімін.\n"
-                "Несие, ипотека немесе қаржыландыру бойынша сұрағыңызды жазыңыз — көмектесемін.\n\n"
-                "Здравствуйте! Я консультант KOMEK DAMU.\n"
-                "Напишите ваш вопрос по кредиту, ипотеке или финансированию — помогу разобраться."
-            )
-            await tg_client.send_message(chat_id, greeting)
-        return
-    
-    # Handle language selection state (Telegram)
-    if session.get("state") == "selecting_lang" and session.get("platform") != "wa":
-        # If free text — detect language and go straight to AI
-        if text_stripped not in ["1", "2"] and not callback_id:
-            # Detect language from text
-            kk_chars = set('әіңғүұқөһ')
-            detected = "kk" if any(c in text_stripped.lower() for c in kk_chars) else "ru"
-            session["lang"] = detected
-            session["state"] = "idle"
-            await save_session(chat_id, session)
-            # Answer via AI
-            ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
-            if ai_response:
-                await send_with_keyboard(ai_response, content.get_menu_keyboard(detected))
-            return
-
-    # Handle WhatsApp-style language selection (text input 1 or 2)
-    if session.get("state") == "selecting_lang" and session.get("platform") == "wa":
-        if text_stripped in ["1", "2"]:
-            selected_lang = "ru" if text_stripped == "1" else "kk"
-            session["lang"] = selected_lang
-            session["state"] = "idle"
-            await save_session(chat_id, session)
-            # Show WhatsApp demo with numeric menu
-            wa_intro = (
-                f"{content.get_wa_intro(selected_lang)}"
-                f"{content.get_wa_menu(selected_lang)}\n\n"
-                f"{content.get_wa_footer(selected_lang)}"
-            )
-            await tg_client.send_message(chat_id, wa_intro)
-            return
-        else:
-            # Free text in WA lang selection — detect and proceed
-            kk_chars = set('әіңғүұқөһ')
-            detected = "kk" if any(c in text_stripped.lower() for c in kk_chars) else "ru"
-            session["lang"] = detected
-            session["state"] = "idle"
-            await save_session(chat_id, session)
-            wa_intro = (
-                f"{content.get_wa_intro(detected)}"
-                f"{content.get_wa_menu(detected)}\n\n"
-                f"{content.get_wa_footer(detected)}"
-            )
-            await tg_client.send_message(chat_id, wa_intro)
-            return
     
     # Handle WhatsApp menu digits (1-7) or AI response for any text
     if session.get("platform") == "wa" and session.get("state") == "idle":
