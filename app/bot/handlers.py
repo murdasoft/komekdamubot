@@ -591,6 +591,17 @@ async def handle_telegram_update(
     if sender_name:
         session["contact_name"] = sender_name
     
+    # Check if dialog already done — client directed to office
+    if session.get("state") == "office_directed" and text_stripped not in ["/start", "/menu"]:
+        office_msg = (
+            "Для полной консультации приходите в наш офис. Адрес: г. Алматы, [адрес офиса]."
+            if lang == "ru" else
+            "Толық кеңес алу үшін офисімізге келіңіз. Мекенжай: Алматы қ., [офис мекенжайы]."
+        )
+        await tg_client.send_message(chat_id, office_msg)
+        await save_session(chat_id, session)
+        return
+
     # Check handoff
     if _is_handoff_active(session):
         # Check for "бот" or "bot" to release
@@ -807,9 +818,10 @@ async def handle_telegram_update(
         # AI response — no flows, just conversation
         ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
         if ai_response:
-            # Check if AI signals it doesn't know — notify manager silently
+            # Extract control tags
             notify_manager = "[NOTIFY_MANAGER]" in ai_response
-            clean_response = ai_response.replace("[NOTIFY_MANAGER]", "").strip()
+            dialog_done = "[DONE]" in ai_response
+            clean_response = ai_response.replace("[NOTIFY_MANAGER]", "").replace("[DONE]", "").strip()
             session["conversation_history"].append({
                 "role": "assistant",
                 "text": clean_response,
@@ -824,6 +836,9 @@ async def handle_telegram_update(
                     platform,
                     session=session
                 )
+            if dialog_done:
+                # Mark session as directed to office — repeat office reminder on further messages
+                session["state"] = "office_directed"
         else:
             await tg_client.send_message(chat_id, content.get_unknown_message(lang))
         await save_session(chat_id, session)
