@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional, List
 from collections import defaultdict
 
 from app.config import get_settings
-from app.groq_client import GroqClient, get_system_prompt
+from app.groq_client import GroqClient, get_system_prompt, detect_city
 from app.bot.knowledge_base import (
     detect_intent, get_product_info, get_faq_answer,
     PRODUCTS, FAQ_ANSWERS
@@ -378,7 +378,12 @@ async def _handle_ai_response_with_context(
 ) -> str | None:
     """Get AI response with conversation history for context understanding."""
     lang = _update_session_lang(text, session)
-    system_prompt = get_system_prompt(lang)
+    # Detect city from current message and persist in session
+    found_city = detect_city(text)
+    if found_city:
+        session["city"] = found_city
+    city = session.get("city")
+    system_prompt = get_system_prompt(lang, city=city)
     
     # Build context from knowledge base
     context = "Доступные продукты:\n"
