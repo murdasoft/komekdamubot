@@ -807,13 +807,23 @@ async def handle_telegram_update(
         # AI response — no flows, just conversation
         ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
         if ai_response:
+            # Check if AI signals it doesn't know — notify manager silently
+            notify_manager = "[NOTIFY_MANAGER]" in ai_response
+            clean_response = ai_response.replace("[NOTIFY_MANAGER]", "").strip()
             session["conversation_history"].append({
                 "role": "assistant",
-                "text": ai_response,
+                "text": clean_response,
                 "timestamp": time.time()
             })
-            await tg_client.send_message(chat_id, ai_response)
-            await log_message(chat_id, platform, "assistant", ai_response, lang)
+            await tg_client.send_message(chat_id, clean_response)
+            await log_message(chat_id, platform, "assistant", clean_response, lang)
+            if notify_manager:
+                await _notify_manager(
+                    f"❓ *Клиент задал вопрос вне базы знаний*\nВопрос: {text_stripped}",
+                    chat_id,
+                    platform,
+                    session=session
+                )
         else:
             await tg_client.send_message(chat_id, content.get_unknown_message(lang))
         await save_session(chat_id, session)
