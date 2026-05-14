@@ -816,57 +816,20 @@ async def handle_telegram_update(
             await save_session(chat_id, session)
             return
         
-        # Check if text looks like menu number
-        if text_stripped in ["1", "2", "3", "4", "5", "6", "7"]:
-            # Map to product and start flow
-            tg_menu_map = {
-                "1": "personal_credit",
-                "2": "business_credit",
-                "3": "damu",
-                "4": "mortgage_menu",  # Changed to show submenu
-                "5": "refinancing",
-                "6": "complex_case",
-                "7": "operator",
-            }
-            product_key = tg_menu_map[text_stripped]
-            
-            # Special handling for mortgage submenu
-            if product_key == "mortgage_menu":
-                await send_with_keyboard(
-                    content.get_greeting(lang),
-                    content.get_mortgage_menu(lang)
-                )
-                return
-            if product_key == "operator":
-                session["state"] = "handoff"
-                session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
-                await tg_client.send_message(chat_id, content.get_operator_message(lang))
-                await _notify_manager(
-                    f"🚨 *Запрос оператора*\nChat: `{chat_id}`\nПлатформа: Telegram",
-                    chat_id,
-                    "telegram",
-                    session=session
-                )
-            else:
-                await _start_product_flow(chat_id, product_key, session, lambda m: tg_client.send_message(chat_id, m))
-            return
+        # AI response — no flows, just conversation
+        ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
+        if ai_response:
+            session["conversation_history"].append({
+                "role": "assistant",
+                "text": ai_response,
+                "timestamp": time.time()
+            })
+            await tg_client.send_message(chat_id, ai_response)
+            await log_message(chat_id, platform, "assistant", ai_response, lang)
         else:
-            # AI response with context
-            ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
-            if ai_response:
-                session["conversation_history"].append({
-                    "role": "assistant",
-                    "text": ai_response,
-                    "timestamp": time.time()
-                })
-                await tg_client.send_message(chat_id, ai_response)
-                # Log AI response
-                await log_message(chat_id, platform, "assistant", ai_response, lang)
-            else:
-                await tg_client.send_message(chat_id, content.get_unknown_message(lang))
-            # Save session after AI response
-            await save_session(chat_id, session)
-            return
+            await tg_client.send_message(chat_id, content.get_unknown_message(lang))
+        await save_session(chat_id, session)
+        return
     
     # Handle callback queries (button clicks)
     if callback_id and text_stripped.startswith(("product:", "menu:", "action:", "lang:", "platform:")):
