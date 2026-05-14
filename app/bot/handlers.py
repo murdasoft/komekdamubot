@@ -289,8 +289,14 @@ def _detect_lang(text: str) -> str:
     kk_chars = set('әіңғүұқөһ')
     if any(c in text.lower() for c in kk_chars):
         return "kk"
-    kk_words = {"керек", "бар", "жоқ", "алу", "беру", "болды", "несие", "ипотека",
-                "береспа", "аламын", "болады", "қажет", "мен", "сіз", "біз"}
+    kk_words = {
+        "керек", "бар", "жоқ", "алу", "беру", "болды", "несие", "ипотека",
+        "береспа", "аламын", "болады", "қажет", "мен", "сіз", "біз",
+        "маған", "саған", "оған", "бізге", "сізге", "қалай", "неше", "қанша",
+        "салеметсізбе", "сәлем", "рахмет", "жақсы", "иә", "жоқ", "өтінем",
+        "кредит", "даму", "қарыз", "пайыз", "мерзім", "құжат", "офис",
+        "бола", "болса", "алсам", "берсе", "келсем", "барсам"
+    }
     words = set(text.lower().split())
     if len(words & kk_words) >= 1:
         return "kk"
@@ -798,24 +804,6 @@ async def handle_telegram_update(
     
     # AI response for any text (when not in flow)
     if session.get("state") == "idle" and not callback_id:
-        # Check if it's a calculation request
-        from app.credit_calculator import extract_amount_and_rate, format_calculation_result
-        calc_params = extract_amount_and_rate(text_stripped)
-        
-        if calc_params and calc_params["amount"] > 0:
-            from app.credit_calculator import calculate_loan
-            calc = calculate_loan(calc_params["amount"], calc_params["rate"], calc_params["years"])
-            response = format_calculation_result(calc, lang)
-            session["conversation_history"].append({
-                "role": "assistant",
-                "text": response,
-                "timestamp": time.time()
-            })
-            await tg_client.send_message(chat_id, response)
-            await log_message(chat_id, platform, "assistant", response, lang)
-            await save_session(chat_id, session)
-            return
-        
         # AI response — no flows, just conversation
         ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
         if ai_response:
