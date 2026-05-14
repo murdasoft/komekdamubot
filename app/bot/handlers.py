@@ -268,13 +268,32 @@ async def _handle_ai_response(
     return response
 
 
+def _detect_lang(text: str) -> str:
+    """Detect language from text using Kazakh-specific characters and words."""
+    kk_chars = set('әіңғүұқөһ')
+    if any(c in text.lower() for c in kk_chars):
+        return "kk"
+    kk_words = {"керек", "бар", "жоқ", "алу", "беру", "болды", "несие", "ипотека",
+                "береспа", "аламын", "болады", "қажет", "мен", "сіз", "біз"}
+    words = set(text.lower().split())
+    if len(words & kk_words) >= 1:
+        return "kk"
+    return "ru"
+
+
 async def _handle_ai_response_with_context(
     text: str,
     session: Dict,
     groq: GroqClient,
 ) -> str | None:
     """Get AI response with conversation history for context understanding."""
-    lang = session.get("lang", "ru")
+    # Always detect lang from current message — override stored lang
+    detected = _detect_lang(text)
+    if detected == "kk":
+        session["lang"] = "kk"
+    elif not session.get("lang"):
+        session["lang"] = "ru"
+    lang = session["lang"]
     system_prompt = get_system_prompt(lang)
     
     # Build context from knowledge base
@@ -586,6 +605,8 @@ async def handle_telegram_update(
                 )
                 
                 if transcribed:
+                    # Detect lang from transcribed text, not from Whisper (more reliable)
+                    detected_lang = _detect_lang(transcribed)
                     session["lang"] = detected_lang
                     text = transcribed
                     # Confirm transcription
