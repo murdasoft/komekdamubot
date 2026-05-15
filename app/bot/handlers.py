@@ -829,23 +829,8 @@ async def handle_telegram_update(
     # Keep only last 10 messages for context
     session["conversation_history"] = session["conversation_history"][-10:]
     
-    # Increment message count for auto-handoff
     session["message_count"] = session.get("message_count", 0) + 1
     platform = session.get("platform", "tg")
-    
-    # Auto-handoff to manager after 2-3 messages (if not in flow)
-    if session["message_count"] >= 3 and session.get("state") == "idle" and not callback_id:
-        session["state"] = "handoff"
-        session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
-        await tg_client.send_message(chat_id, content.get_operator_message(lang))
-        await _notify_manager(
-            f"🚨 *Авто-передача менеджеру (3 сообщения)*\nЧат: `{chat_id}`\nПлатформа: {platform}\nПоследнее сообщение: {text_stripped[:100]}...",
-            chat_id,
-            "telegram",
-            session=session
-        )
-        await save_session(chat_id, session)
-        return
     
     # Check if user asked for menu (any platform)
     menu_keywords = ["меню", "menu", "мәзір", "список", "варианты", "нұсқалар", "/menu"]
