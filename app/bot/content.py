@@ -88,34 +88,45 @@ MORTGAGE_MENU_KK = {
     ]
 }
 
-# Operator/handoff messages
-OPERATOR_RU = (
-    "Передаю диалог менеджеру. Совсем скоро с вами свяжется человек.\n"
-    "Если срочно — позвоните: +7 (XXX) XXX-XX-XX"
-)
+# City phones
+CITY_PHONES = {
+    "almaty":   "8 707 339 10 39",
+    "astana":   "8 702 187 97 26",
+    "shymkent": "8 705 810 28 81",
+    "atyrau":   "8 706 686 83 00",
+}
 
-OPERATOR_KK = (
-    "Диалогты менеджерге беремін. Жақын арада сізбен адам байланысады.\n"
-    "Тездету үшін қоңырау шалыңыз: +7 (XXX) XXX-XX-XX"
-)
+DEFAULT_PHONE = "8 707 339 10 39"
+
+
+def get_city_phone(city: str | None) -> str:
+    return CITY_PHONES.get(city, DEFAULT_PHONE) if city else DEFAULT_PHONE
+
+
+# Operator/handoff messages
+OPERATOR_RU = "Передаю диалог менеджеру. Совсем скоро с вами свяжется человек."
+OPERATOR_KK = "Диалогты менеджерге беремін. Жақын арада сізбен адам байланысады."
+
+
+def get_operator_message_with_phone(lang: str, city: str | None = None) -> str:
+    phone = get_city_phone(city)
+    if lang == "kk":
+        return f"Диалогты менеджерге беремін. Жақын арада сізбен адам байланысады.\nТездету үшін қоңырау шалыңыз: {phone}"
+    return f"Передаю диалог менеджеру. Совсем скоро с вами свяжется человек.\nЕсли срочно — позвоните: {phone}"
 
 HANDOFF_RELEASED_RU = "Возвращаю бота в диалог. Напишите /start для главного меню."
 HANDOFF_RELEASED_KK = "Ботты диалогқа қайтарып аламын. Негізгі мәзір үшін /start жазыңыз."
 
 # Error / unknown message
-UNKNOWN_RU = (
-    "Извините, не совсем понял ваш запрос.\n\n"
-    "Вы можете:\n"
-    "• Позвонить: +7 (XXX) XXX-XX-XX\n"
-    "• Написать /start для возврата в меню"
-)
+def get_unknown_message_with_phone(lang: str, city: str | None = None) -> str:
+    phone = get_city_phone(city)
+    if lang == "kk":
+        return (f"Кешіріңіз, сұрауыңызды толық түсінбедім.\n\nСіз:\n• Қоңырау шала аласыз: {phone}\n• Негізгі мәзірге оралу үшін /start жазыңыз")
+    return (f"Извините, не совсем понял ваш запрос.\n\nВы можете:\n• Позвонить: {phone}\n• Написать /start для возврата в меню")
 
-UNKNOWN_KK = (
-    "Кешіріңіз, сұрауыңызды толық түсінбедім.\n\n"
-    "Сіз:\n"
-    "• Қоңырау шала аласыз: +7 (XXX) XXX-XX-XX\n"
-    "• Негізгі мәзірге оралу үшін /start жазыңыз"
-)
+
+UNKNOWN_RU = get_unknown_message_with_phone("ru")
+UNKNOWN_KK = get_unknown_message_with_phone("kk")
 
 # Language detection failed
 LANG_DETECT_FAILED_RU = "Извините, не удалось определить язык. Пожалуйста, напишите текстом."

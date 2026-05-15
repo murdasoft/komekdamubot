@@ -762,7 +762,7 @@ async def handle_telegram_update(
             if product_key == "operator":
                 session["state"] = "handoff"
                 session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
-                await tg_client.send_message(chat_id, content.get_operator_message(lang))
+                await tg_client.send_message(chat_id, content.get_operator_message_with_phone(lang, session.get("city")))
                 await _notify_manager(
                     f"🚨 *Запрос оператора*\nChat: `{chat_id}`\nПлатформа: WhatsApp",
                     chat_id,
@@ -811,7 +811,7 @@ async def handle_telegram_update(
     if any(word in text_stripped.lower() for word in ["оператор", "менеджер", "человек", "маман", "админ"]):
         session["state"] = "handoff"
         session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
-        await tg_client.send_message(chat_id, content.get_operator_message(lang))
+        await tg_client.send_message(chat_id, content.get_operator_message_with_phone(lang, session.get("city")))
         await _notify_manager(
             f"🚨 *Запрос оператора*\nChat: `{chat_id}`\nСообщение: {text_stripped}",
             chat_id,
@@ -909,7 +909,7 @@ async def handle_telegram_update(
         elif text_stripped == "action:operator":
             session["state"] = "handoff"
             session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
-            await tg_client.send_message(chat_id, content.get_operator_message(lang))
+            await tg_client.send_message(chat_id, content.get_operator_message_with_phone(lang, session.get("city")))
             return
         
         elif text_stripped == "demo:whatsapp":
@@ -1050,7 +1050,7 @@ async def handle_whatsapp_update(
     if any(word in text_stripped.lower() for word in ["оператор", "менеджер", "человек", "маман", "7"]):
         session["state"] = "handoff"
         session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
-        await send_wa_with_hint(content.get_operator_message(lang))
+        await send_wa_with_hint(content.get_operator_message_with_phone(lang, session.get("city")))
         await _notify_manager(
             f"🚨 *Запрос оператора (WhatsApp)*\nPhone: `{chat_id}`\nСообщение: {text_stripped}",
             chat_id,
@@ -1085,7 +1085,7 @@ async def handle_whatsapp_update(
         elif mapped == "operator":
             session["state"] = "handoff"
             session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
-            await send_wa_with_hint(content.get_operator_message(lang))
+            await send_wa_with_hint(content.get_operator_message_with_phone(lang, session.get("city")))
             return
         elif mapped:
             await _start_product_flow(
