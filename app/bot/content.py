@@ -94,6 +94,7 @@ CITY_PHONES = {
     "astana":   "8 702 187 97 26",
     "shymkent": "8 705 810 28 81",
     "atyrau":   "8 706 686 83 00",
+    "aktau":    "8 705 112 99 22",
 }
 
 DEFAULT_PHONE = "8 707 339 10 39"
