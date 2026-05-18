@@ -6,6 +6,282 @@ Covers: greetings, verbs, pronouns, finance, time, questions, conjunctions.
 # Kazakh-specific characters (letters exclusive to Kazakh alphabet)
 KK_CHARS = set('әіңғүұқөһӘІҢҒҮҰҚӨҺ')
 
+# Common Kazakh word stems for noun case generation
+KK_NOUN_STEMS = [
+    # Finance core
+    "несие", "кредит", "қарыз", "карыз", "ақша", "акша", "пайыз", "төлем", "толем",
+    "мерзім", "мерзим", "кепіл", "кепил", "залог", "кепілдік", "кепилдик",
+    "пәтер", "патер", "үй", "уй", "бизнес", "кәсіп", "касип", "жұмыс", "жумыс",
+    "жеке", "тұлға", "тулга", "кәсіпкер", "касипкер", "компания", "компания",
+    "құжат", "кужат", "паспорт", "удостоверение", "жсн", "иин", "бин",
+    "пенсионка", "пенсия", "зейнетақы", "зейнетакы",
+    # Time
+    "күн", "кун", "ай", "жыл", "апта", "сағат", "сагат", "минут", "секунд",
+    "таң", "тан", "түс", "тус", "кеш", "түн", "тун",
+    "бүгін", "буген", "ертең", "ертен", "кеше", "қазір", "казир",
+    # Location
+    "қала", "кала", "ел", "ел", "қоңырау", "конгырау", "көше", "көше",
+    "офис", "үй", "уй", "жер", "жақ", "жак", "бағыт", "багыт",
+    # Actions
+    "жауап", "сұрақ", "сурак", "көмек", "комек", "өтініш", "отиниш",
+    "хабарлама", "жазба", "шағым", "шагым", "ұсыныс", "усынис",
+    # People
+    "адам", "клиент", "клиент", "қызметкер", "кызметкер", "менеджер", "менеджер",
+    "қонақ", "конак", "дос", "таныс", "отбасы", "отбасы", "бала",
+    # Properties
+    "сома", "сома", "баға", "бага", "шарт", "телефон", "номер", "мекенжай", "мекенжай",
+    "кезек", "кезек", "мәселе", "маселе", "сұрақ", "сурак", "жағдай", "жагдай",
+]
+
+# Noun case endings with all harmony variants
+def generate_noun_cases(stem: str) -> set:
+    """Generate all case forms for a noun stem."""
+    vowels = set('аәеиоөуүыі')
+    last_vowel = None
+    for c in reversed(stem.lower()):
+        if c in vowels:
+            last_vowel = c
+            break
+    
+    # Determine front/back harmony
+    is_front = last_vowel in set('әөүіеи') if last_vowel else False
+    is_rounded = last_vowel in set('оөуү') if last_vowel else False
+    
+    cases = {stem}  # nominative
+    
+    # Genitive: -ның/нің/дың/дің/тың/тің
+    if stem[-1] in set('йрлмнңжз'):
+        cases.add(stem + ("нің" if is_front else "ның"))
+        cases.add(stem + ("нин" if is_front else "нин"))  # translit
+    elif stem[-1] in set('қкпстфхцчш'):
+        cases.add(stem + ("тің" if is_front else "тың"))
+        cases.add(stem + ("тин" if is_front else "тын"))
+    else:
+        cases.add(stem + ("дің" if is_front else "дың"))
+        cases.add(stem + ("дин" if is_front else "дын"))
+    
+    # Dative: -ға/ге/қа/ке/на/не (after vowels)
+    if stem[-1] in vowels:
+        cases.add(stem + ("ге" if is_front else "ға"))
+        cases.add(stem + ("ге" if is_front else "га"))
+    elif stem[-1] in set('қк'):
+        cases.add(stem + ("ке" if is_front else "қа"))
+        cases.add(stem + ("ке" if is_front else "ка"))
+    elif stem[-1] in set('ғг'):
+        cases.add(stem + ("ге" if is_front else "ға"))
+        cases.add(stem + ("ге" if is_front else "га"))
+    else:
+        cases.add(stem + ("не" if is_front else "на"))
+        cases.add(stem + ("не" if is_front else "на"))
+    
+    # Accusative: -ды/ді/ты/ті/ны/ні
+    if stem[-1] in set('қкпстфхцчш'):
+        cases.add(stem + ("ті" if is_front else "ты"))
+        cases.add(stem + ("ти" if is_front else "ты"))
+    elif stem[-1] in set('йрлмнңжз'):
+        cases.add(stem + ("ні" if is_front else "ны"))
+        cases.add(stem + ("ни" if is_front else "ны"))
+    else:
+        cases.add(stem + ("ді" if is_front else "ды"))
+        cases.add(stem + ("ди" if is_front else "ды"))
+    
+    # Locative: -да/де/та/те/ла/ле
+    if stem[-1] in set('қкпстфхцчш'):
+        cases.add(stem + ("те" if is_front else "та"))
+        cases.add(stem + ("те" if is_front else "та"))
+    elif stem[-1] in set('йрлмнңжз'):
+        cases.add(stem + ("де" if is_front else "да"))
+        cases.add(stem + ("де" if is_front else "да"))
+    else:
+        cases.add(stem + ("де" if is_front else "да"))
+        cases.add(stem + ("де" if is_front else "да"))
+    
+    # Ablative: -дан/ден/тан/тен/нан/нен
+    if stem[-1] in set('қкпстфхцчш'):
+        cases.add(stem + ("тен" if is_front else "тан"))
+        cases.add(stem + ("тен" if is_front else "тан"))
+    elif stem[-1] in set('йрлмнңжз'):
+        cases.add(stem + ("нен" if is_front else "нан"))
+        cases.add(stem + ("нен" if is_front else "нан"))
+    else:
+        cases.add(stem + ("ден" if is_front else "дан"))
+        cases.add(stem + ("ден" if is_front else "дан"))
+    
+    # Instrumental: -мен/бен/пен
+    cases.add(stem + "мен")
+    cases.add(stem + "мен")
+    
+    return cases
+
+# Generate all noun case forms
+KK_NOUN_CASES = set()
+for stem in KK_NOUN_STEMS:
+    KK_NOUN_CASES.update(generate_noun_cases(stem))
+
+# Common verb stems for conjugation generation
+KK_VERB_STEMS = [
+    "бар", "кел", "ал", "бер", "көр", "кор", "жаз", "оқы", "оки",
+    "сұра", "сура", "айт", "жаса", "бол", "тұр", "тур", "отыр", "отур",
+    "жүр", "жур", "түсін", "тусин", "кет", "баста", "аяқта", "аякта",
+    "жалғастыр", "жалгастыр", "төле", "толе", "сақта", "сакта", "ұмыт", "умыт",
+    "ұсын", "усын", "қабылда", "кабылда", "біл", "бил", "білдір", "билдир",
+    "таба", "қара", "кара", "көмектес", "комектес", "жауап бер", "сөйле", "сойле",
+]
+
+# Verb conjugation endings
+def generate_verb_forms(stem: str) -> set:
+    """Generate all conjugated forms for a verb stem."""
+    vowels = set('аәеиоөуүыі')
+    last_vowel = None
+    for c in reversed(stem.lower()):
+        if c in vowels:
+            last_vowel = c
+            break
+    
+    is_front = last_vowel in set('әөүіеи') if last_vowel else False
+    ends_vowel = stem[-1] in vowels
+    
+    forms = {stem}  # imperative
+    
+    # Infinitive: -у/ю
+    if ends_vowel:
+        forms.add(stem + "у")
+        forms.add(stem + "у")
+    else:
+        forms.add(stem + ("ю" if is_front else "у"))
+        forms.add(stem + ("ю" if is_front else "у"))
+    
+    # Present/future 1st person: -амын/емін/мыз/міз
+    forms.add(stem + ("емін" if is_front else "амын"))
+    forms.add(stem + ("емин" if is_front else "амин"))
+    forms.add(stem + ("еміз" if is_front else "амыз"))
+    forms.add(stem + ("емиз" if is_front else "амиз"))
+    
+    # Present/future 2nd person formal: -асыз/есіз
+    forms.add(stem + ("есіз" if is_front else "асыз"))
+    forms.add(stem + ("есиз" if is_front else "асиз"))
+    forms.add(stem + ("есіздер" if is_front else "асыздар"))
+    forms.add(stem + ("есиздер" if is_front else "асиздар"))
+    
+    # Present/future 3rd person: -ады/еді/йды
+    if ends_vowel:
+        forms.add(stem + ("йді" if is_front else "йды"))
+        forms.add(stem + ("йди" if is_front else "йды"))
+    else:
+        forms.add(stem + ("еді" if is_front else "ады"))
+        forms.add(stem + ("еди" if is_front else "ады"))
+    
+    # Past: -ды/ді/ты/ті + personal endings
+    if stem[-1] in set('қкпстфхцчш'):
+        past_base = stem + ("ті" if is_front else "ты")
+    else:
+        past_base = stem + ("ді" if is_front else "ды")
+    forms.add(past_base)
+    forms.add(past_base + "м")  # 1st person
+    forms.add(past_base + "ң")  # 2nd person informal
+    forms.add(past_base + "ңыз")  # 2nd person formal
+    forms.add(past_base + "низ")  # translit
+    
+    # Conditional: -са/се
+    cond = stem + ("се" if is_front else "са")
+    forms.add(cond)
+    forms.add(cond + "м")  # 1st person
+    forms.add(cond + "ң")  # 2nd person
+    forms.add(cond + "ңыз")  # 2nd person formal
+    
+    # Optative: -айын/ейін
+    if ends_vowel:
+        forms.add(stem + ("йін" if is_front else "йын"))
+        forms.add(stem + ("йин" if is_front else "йин"))
+    else:
+        forms.add(stem + ("ейін" if is_front else "айын"))
+        forms.add(stem + ("ейин" if is_front else "айин"))
+    
+    return forms
+
+# Generate all verb forms
+KK_VERB_ALL = set()
+for stem in KK_VERB_STEMS:
+    KK_VERB_ALL.update(generate_verb_forms(stem))
+
+# Adjective comparatives and superlatives
+KK_ADJECTIVE_STEMS = [
+    "жақсы", "жаксы", "жаман", "үлкен", "улкен", "кіші", "киши", "жаңа", "жанга",
+    "ескі", "ески", "ақ", "ак", "қара", "кара", "қызыл", "кизил", "сары",
+    "көк", "кок", "жасыл", "жасил", "қоңыр", "конгыр", "ағаш", "агаш",
+    "тез", "тез", "ақылды", "акилди", "дәл", "дал", "қиын", "киин", "жеңіл", "женил",
+]
+
+# Generate adjective forms
+def generate_adj_forms(stem: str) -> set:
+    vowels = set('аәеиоөуүыі')
+    last_vowel = None
+    for c in reversed(stem.lower()):
+        if c in vowels:
+            last_vowel = c
+            break
+    is_front = last_vowel in set('әөүіеи') if last_vowel else False
+    
+    forms = {stem}
+    # Comparative: -ырақ/ірік
+    if stem[-1] in vowels:
+        forms.add(stem + ("рігі" if is_front else "ырақ"))
+        forms.add(stem + ("риги" if is_front else "ырак"))
+    else:
+        forms.add(stem + ("ірек" if is_front else "ырақ"))
+        forms.add(stem + ("ирек" if is_front else "ырак"))
+    
+    # Superlative: -ымс/імс + comparative or ең
+    forms.add("ең " + stem)
+    forms.add("ен " + stem)
+    
+    return forms
+
+KK_ADJ_ALL = set()
+for stem in KK_ADJECTIVE_STEMS:
+    KK_ADJ_ALL.update(generate_adj_forms(stem))
+
+# Possessive suffixes added to common nouns
+KK_POSSESSIVE_BASES = [
+    "үй", "уй", "машина", "машина", "телефон", "телефон", "несие", "кредит",
+    "қарыз", "карыз", "жұмыс", "жумыс", "бизнес", "көлік", "колик", "ақша", "акша",
+]
+
+def generate_possessive(base: str) -> set:
+    vowels = set('аәеиоөуүыі')
+    last_vowel = None
+    for c in reversed(base.lower()):
+        if c in vowels:
+            last_vowel = c
+            break
+    is_front = last_vowel in set('әөүіеи') if last_vowel else False
+    
+    forms = {base}
+    # 1st person: -ым/ім/м/ым/ім
+    if base[-1] in vowels:
+        forms.add(base + ("м" if is_front else "м"))
+        forms.add(base + ("м" if is_front else "м"))
+    else:
+        forms.add(base + ("ім" if is_front else "ым"))
+        forms.add(base + ("им" if is_front else "ым"))
+    
+    # 2nd person formal: -ыңыз/іңіз
+    forms.add(base + ("іңіз" if is_front else "ыңыз"))
+    forms.add(base + ("ингиз" if is_front else "ыңыз"))
+    
+    # 3rd person: -ы/і/сі/сі
+    if base[-1] in vowels:
+        forms.add(base + "сы")  # after vowel
+    else:
+        forms.add(base + ("і" if is_front else "ы"))
+        forms.add(base + ("и" if is_front else "ы"))
+    
+    return forms
+
+KK_POSSESSIVE = set()
+for base in KK_POSSESSIVE_BASES:
+    KK_POSSESSIVE.update(generate_possessive(base))
+
 # Core verbs with all common conjugations and transliterations
 KK_VERBS = {
     # керек (need/want) - central modal verb
@@ -636,10 +912,11 @@ KK_ACTIONS = {
     "қолдау", "колдау", "қолда", "колда", "қолдай", "колдай",
 }
 
-# Collected all categories
+# Collected all categories including generated morphological forms
 ALL_KK_WORDS = (
     KK_VERBS | KK_PRONOUNS | KK_FINANCE | KK_GREETINGS | KK_TIME | KK_QUESTIONS |
-    KK_CONJUNCTIONS | KK_NUMBERS | KK_ADJECTIVES | KK_LOCATION | KK_ACTIONS
+    KK_CONJUNCTIONS | KK_NUMBERS | KK_ADJECTIVES | KK_LOCATION | KK_ACTIONS |
+    KK_NOUN_CASES | KK_VERB_ALL | KK_ADJ_ALL | KK_POSSESSIVE
 )
 
 # Special multi-word phrases (substring match priority)
