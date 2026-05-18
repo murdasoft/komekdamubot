@@ -928,15 +928,6 @@ async def handle_telegram_update(
         )
         return
     
-    # Try to detect intent and start flow
-    intent = detect_intent(text_stripped)
-    if intent:
-        await _start_product_flow(
-            chat_id, intent, session,
-            lambda m: tg_client.send_message(chat_id, m)
-        )
-        return
-    
     # FAQ detection (simple keyword matching)
     faq_keywords = {
         "адрес": "address", "мекенжай": "address", "где": "address",
@@ -1106,14 +1097,28 @@ async def handle_whatsapp_update(
         )
         return
     
-    # Intent detection for free text
-    intent = detect_intent(text_stripped)
-    if intent:
-        await _start_product_flow(
-            chat_id, intent, session,
-            lambda m: send_wa_with_hint(m)
-        )
-        return
-    
-    # Unknown - send menu
-    await send_wa_with_hint(content.get_wa_menu(lang))
+    # AI response for free text
+    session["conversation_history"] = session.get("conversation_history", [])
+    session["conversation_history"].append({
+        "role": "user",
+        "text": text_stripped,
+        "timestamp": time.time()
+    })
+    ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
+    if ai_response:
+        notify_manager = "[NOTIFY_MANAGER]" in ai_response
+        clean_response = ai_response.replace("[NOTIFY_MANAGER]", "").replace("[DONE]", "").strip()
+        session["conversation_history"].append({
+            "role": "assistant",
+            "text": clean_response,
+            "timestamp": time.time()
+        })
+        await send_wa_with_hint(clean_response)
+        if notify_manager:
+            await _notify_manager(
+                f"\u2753 *Клиент задал вопрос вне базы знаний*\nВопрос: {text_stripped}",
+                chat_id, "whatsapp", session=session
+            )
+    else:
+        await send_wa_with_hint(content.get_unknown_message_with_phone(lang, session.get("city")))
+    await save_session(chat_id, session)
