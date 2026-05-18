@@ -22,6 +22,11 @@ from app.bot.flows import (
     validate_phone, validate_number, validate_yes_no
 )
 from app.bot import content
+from app.bot.kazakh_dict import (
+    KK_CHARS as _KK_CHARS,
+    ALL_KK_WORDS as _ALL_KK_WORDS,
+    KK_PHRASES_EXTENDED as _KK_PHRASES,
+)
 from app.supabase_client import save_session, load_session, log_message, create_lead
 
 logger = logging.getLogger(__name__)
@@ -284,81 +289,17 @@ async def _handle_ai_response(
     return response
 
 
-# Kazakh-specific characters (exclusive to Kazakh)
-_KK_CHARS = set('әіңғүұқөһӘІҢҒҮҰҚӨҺ')
-
-# Whole-word Kazakh markers (matched with word boundaries to avoid false positives like 'мен' in 'именно')
-# Includes both pure Kazakh AND shala-kazakh transliterations (no special chars)
-_KK_WORDS = {
-    # Core verbs / modal
-    "керек", "жоқ", "жок", "бар", "иә", "ия", "иа",
-    "болады", "болмайды", "болсын", "болса", "болмаса", "бола",
-    "беріледі", "беремін", "беремын", "береміз", "берем", "берсе", "беру", "береді", "берсиз",
-    "алу", "алам", "аламын", "алсам", "алады", "алыңыз", "ал",
-    "келіңіз", "келиниз", "келсем", "келеді", "келеди", "кел",
-    "істемейді", "истемейди", "істемей", "истемей",
-    # Pronouns / persons (full transliteration)
-    "сіз", "сиз", "сіздер", "сиздер",
-    "біз", "биз", "ол", "олар",
-    "маған", "маган", "саған", "саган", "оған", "оган",
-    "бізге", "бизге", "сізге", "сизге",
-    "менде", "сенде", "сізде", "сизде", "бізде", "бизде",
-    # Finance vocabulary
-    "несие", "несиеси", "даму", "пайыз", "пайызы", "мерзім", "мерзими",
-    "құжат", "кужат", "қарыз", "карыз", "өтініш", "отиниш",
-    "тұлға", "тулга", "жеке",
-    "пенсионкамен", "пенсионкасыз",
-    "ашық", "ашык",
-    "ипга", "ипге",
-    # Conjunctions / particles
-    "бірақ", "бирак", "және", "немесе", "сонда", "сосын",
-    "деп", "деген", "дейді", "дейді", "дейді",
-    "үшін", "ушин",
-    "жұмыс", "жумыс", "жұмысым", "жумысым",
-    # Greetings / phatic
-    "сәлем", "салем", "рахмет", "рақмет", "рахмет",
-    "жақсы", "жаксы", "ия", "иа",
-    "қалай", "калай", "қанша", "канша", "неше",
-    "сұрақ", "сурак", "жауап",
-    # Inquiry / questions
-    "бойынша", "туралы", "арналған", "арналган", "арнайы", "арнап",
-    "қашан", "кашан", "қайда", "кайда", "не",
-    # Time / modifiers
-    "дейін", "дейин", "дейын",
-    "қазір", "казир", "бүгін", "буген", "ертең", "ертен",
-    "жоғары", "жогары", "төмен", "томен",
-    # Misc
-    "үй", "уй",
-    "офис", "офиске", "офисіміз", "офисимиз", "офисімізге", "офисимизге",
-    "хабарласыңыз", "хабарласыныз",
-}
-
-# Multi-word Kazakh phrases (matched as substrings)
-_KK_PHRASES = (
-    "жеке тұлға", "жеке тулга",
-    "бар еді", "бар еди", "бар едi",
-    "ип бар", "тоо бар",
-    "ип керек", "тоо керек",
-    "ипотека керек", "ипота керек", "ипга керек",
-    "несие керек", "несие алу", "несие беру",
-    "просрочка болмауы", "просрочка болмаса", "просрочка болмайды",
-    "ашық просрочка", "ашык просрочка",
-    "уй алу", "квартира керек",
-    "бересиздерма", "бересіздерма", "беремесінде",
-    "сәлеметсіз бе", "салеметсиз бе", "салеметсизбе", "сәлеметсізбе",
-    "түсінбедім", "тусинбедим",
-)
-
+# Use massive Kazakh dictionary from kazakh_dict.py
 import re as _re
 _WORD_RE = _re.compile(r'[a-zа-яёәіңғүұқөһ]+', _re.IGNORECASE)
 
 
 def _detect_lang(text: str) -> str:
     """
-    Robust shala-kazakh detector:
+    Ultimate Kazakh detector using massive dictionary (1000+ words/phrases).
     1) Any Kazakh-specific character → kk
-    2) Any multi-word Kazakh phrase → kk
-    3) Any whole word matching Kazakh word set (with word boundaries) → kk
+    2) Any multi-word Kazakh phrase → kk  
+    3) Any whole word matching Kazakh dictionary → kk
     4) Default → ru
     """
     if not text:
@@ -369,14 +310,14 @@ def _detect_lang(text: str) -> str:
     if any(c in _KK_CHARS for c in lower):
         return "kk"
 
-    # 2. Multi-word phrases (substring match)
+    # 2. Multi-word phrases (substring match) - extended set
     for phrase in _KK_PHRASES:
         if phrase in lower:
             return "kk"
 
-    # 3. Whole-word match (word boundaries) — avoids false positives
+    # 3. Whole-word match using massive dictionary (1000+ words)
     words = set(_WORD_RE.findall(lower))
-    if words & _KK_WORDS:
+    if words & _ALL_KK_WORDS:
         return "kk"
 
     return "ru"
