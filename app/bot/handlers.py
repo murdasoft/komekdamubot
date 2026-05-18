@@ -683,11 +683,9 @@ async def handle_telegram_update(
         _sessions[chat_id]["platform"] = "tg"
         await save_session(chat_id, _sessions[chat_id])
         lang_prompt = (
-            "👋 *KOMEK DAMU*\n\n"
-            "🌐 *Тілді таңдаңыз / Выберите язык:*\n\n"
-            "1️⃣ *Қазақша*\n"
-            "2️⃣ *Русский*\n\n"
-            "_Сізге 1 немесе 2 деп жазыңыз / Напишите 1 или 2_"
+            "Сәлеметсіз бе! / Здравствуйте! 👋\n\n"
+            "1 — Қазақша\n"
+            "2 — Русский"
         )
         logger.info(f"Sending language selection to chat_id={chat_id}")
         try:
@@ -726,12 +724,11 @@ async def handle_telegram_update(
         session["state"] = "selecting_lang"
         await save_session(chat_id, session)
         lang_prompt = (
-            "🌐 *Тілді ауыстыру / Сменить язык:*\n\n"
-            "1️⃣ *Қазақша*\n"
-            "2️⃣ *Русский*\n\n"
-            "_Жазыңыз 1 или 2 / Напишите 1 или 2_"
+            "Тілді ауыстыру / Сменить язык:\n\n"
+            "1 — Қазақша\n"
+            "2 — Русский"
         )
-        await tg_client.send_message(chat_id, lang_prompt, parse_mode="Markdown")
+        await tg_client.send_message(chat_id, lang_prompt)
         return
     
     session = await _get_session(chat_id)
