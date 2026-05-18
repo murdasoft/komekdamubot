@@ -379,6 +379,12 @@ async def _handle_ai_response_with_context(
     response, err = await groq.chat(messages, temperature=0.8)
     if err:
         logger.error("AI error with context: %s", err)
+        # Check if rate limit (429)
+        if "429" in str(err) or "rate_limit" in str(err).lower():
+            # Return friendly fallback without AI
+            lang = session.get("lang", "ru")
+            city = session.get("city")
+            return content.get_ai_fallback_message(lang, city) + " [DONE]"
         return None
     logger.info(f"AI response: '{response[:100] if response else 'None'}...' for text='{text[:30]}...'")
     return response
