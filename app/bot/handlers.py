@@ -380,6 +380,7 @@ async def _handle_ai_response_with_context(
     if err:
         logger.error("AI error with context: %s", err)
         return None
+    logger.info(f"AI response: '{response[:100] if response else 'None'}...' for text='{text[:30]}...'")
     return response
 
 
@@ -716,12 +717,18 @@ async def handle_telegram_update(
                     audio_bytes, groq, session.get("lang")
                 )
                 
-                if transcribed:
+                logger.info(f"Voice transcription result: '{transcribed}' lang={detected_lang} for chat={chat_id}")
+                
+                if transcribed and transcribed.strip():
                     # Detect lang from transcribed text, not from Whisper (more reliable)
                     detected_lang = _detect_lang(transcribed)
                     session["lang"] = detected_lang
-                    text = transcribed
-                    # Transcription used internally — not sent to client
+                    text = transcribed.strip()
+                    logger.info(f"Voice processed: lang={detected_lang}, text='{text[:50]}...'")
+                elif transcribed:
+                    logger.warning(f"Voice transcription empty/whitespace for chat={chat_id}")
+                    await tg_client.send_message(chat_id, "Не расслышал. Повторите, пожалуйста.")
+                    return
                 else:
                     await tg_client.send_message(
                         chat_id,
