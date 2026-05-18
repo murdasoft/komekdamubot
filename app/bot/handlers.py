@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import logging
 import time
-import random
 from typing import Any, Dict, Optional, List
 from collections import defaultdict
 
@@ -47,27 +46,27 @@ _sessions: Dict[str, Dict] = defaultdict(lambda: {
     "platform": "telegram",  # telegram or whatsapp
 })
 
-# Random responses for small talk
-RANDOM_RESPONSES_RU = {
-    "greeting": ["Привет! 👋", "Здравствуйте! 🌟", "Рад вас видеть! 😊"],
-    "thanks": ["Пожалуйста! Всегда рад помочь 🤝", "Обращайтесь! 👍", "Всегда к вашим услугам! 😊"],
-    "how_are_you": ["Всё отлично, готов помочь с финансами! 💪", "Работаю на полную, спрашивайте! 🚀", "В прекрасном настроении! Чем помочь? 😊"],
-    "bye": ["До свидания! Обращайтесь ещё 👋", "Всего доброго! 🌟", "До встречи! 🤝"],
-    "unknown": ["Интересный вопрос! Давайте разберёмся 🤔", "Хм, давайте посмотрим... 🤓", "Отличный вопрос! 🎯"],
+# Compact random responses for small talk (single response per category)
+SMALL_TALK = {
+    "ru": {
+        "greeting": "Здравствуйте! 👋",
+        "thanks": "Пожалуйста! Всегда рад помочь 🤝",
+        "how_are_you": "Всё отлично, готов помочь с финансами! 💪",
+        "bye": "До свидания! Обращайтесь ещё 👋",
+        "unknown": "Интересный вопрос! Давайте разберёмся 🤔",
+    },
+    "kk": {
+        "greeting": "Сәлем! 👋",
+        "thanks": "Өтінемін! Көмектесуге дайынмын 🤝",
+        "how_are_you": "Барлық жақсы, қаржы бойынша көмектесуге дайынмын! 💪",
+        "bye": "Сау болыңыз! Келесі жолы хабарласыңыз 👋",
+        "unknown": "Қызықты сұрақ! Келіңіз, талдайық 🤔",
+    },
 }
 
-RANDOM_RESPONSES_KK = {
-    "greeting": ["Сәлем! 👋", "Қош келдіңіз! 🌟", "Сізді көргеніме қуаныштымын! 😊"],
-    "thanks": ["Өтінемін! Көмектесуге әрқашан дайынмын 🤝", "Хабарласыңыз! 👍", "Әрқашан қызметтіңіздемін! 😊"],
-    "how_are_you": ["Барлық жақсы, қаржы бойынша көмектесуге дайынмын! 💪", "Толық жұмыс істеймін, сұраңыз! 🚀", "Керемет көңіл-күйде! Қалай көмектесе аламын? 😊"],
-    "bye": ["Сау болыңыз! Келесі жолы хабарласыңыз 👋", "Бәрі жақсы болсын! 🌟", "Келесі кездескенше! 🤝"],
-    "unknown": ["Қызықты сұрақ! Келіңіз, талдайық 🤔", "Хм, қарап көрейік... 🤓", "Керемет сұрақ! 🎯"],
-}
-
-def get_random_response(category: str, lang: str = "ru") -> str:
-    """Get random response for category."""
-    responses = RANDOM_RESPONSES_RU if lang == "ru" else RANDOM_RESPONSES_KK
-    return random.choice(responses.get(category, responses["unknown"]))
+def get_small_talk_response(category: str, lang: str = "ru") -> str:
+    """Get small talk response for category."""
+    return SMALL_TALK.get(lang, SMALL_TALK["ru"]).get(category, SMALL_TALK["ru"]["unknown"])
 
 def detect_small_talk_intent(text: str) -> str | None:
     """Detect if user is making small talk vs asking about products."""
@@ -92,27 +91,6 @@ def detect_small_talk_intent(text: str) -> str | None:
             return "bye"
     
     return None
-
-
-def _detect_language(text: str) -> str:
-    """Detect if text is Kazakh or Russian. For mixed language, default to Kazakh."""
-    # Kazakh-specific characters
-    kazakh_chars = set("әіңғүұқөһӘІҢҒҮҰҚӨҺ")
-    if any(c in text for c in kazakh_chars):
-        return "kk"
-    
-    # Common Kazakh words (expanded list for шала-казахский)
-    kazakh_words = ["сіз", "мен", "біз", "және", "болды", "қазақстан", "қазақ", "несие", "ипотека",
-                     "салеметсіз", "рахмет", "қалай", "не", "бар", "жоқ", "көмектес", "алай", "әрі", "бәрі",
-                     "дейін", "үшін", "бірге", "сонымен", "бірақ", "сондай", "әрине", "жаса", "қыл"]
-    text_lower = text.lower()
-    kazakh_score = sum(1 for w in kazakh_words if w in text_lower)
-    
-    # For mixed language (шала-казахский): ANY Kazakh word = Kazakh
-    if kazakh_score >= 1:
-        return "kk"
-    
-    return "ru"
 
 
 async def _get_session(chat_id: str) -> Dict:
@@ -870,7 +848,7 @@ async def handle_telegram_update(
     # Check for small talk (random responses)
     small_talk_intent = detect_small_talk_intent(text_stripped)
     if small_talk_intent and session.get("state") == "idle":
-        response = get_random_response(small_talk_intent, lang)
+        response = get_small_talk_response(small_talk_intent, lang)
         await tg_client.send_message(chat_id, response)
         return
     
