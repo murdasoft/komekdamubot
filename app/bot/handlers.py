@@ -733,61 +733,17 @@ async def handle_telegram_update(
         return
     
     text_stripped = text.strip()
-    
     lang = session.get("lang", "ru")
     
-    # Helper to send with keyboard
-    async def send_with_keyboard(message: str, keyboard: Dict | None = None):
-        await tg_client.send_message(chat_id, message, reply_markup=keyboard)
-    
-    # Handle /start or menu return (already handled above, but catch duplicates from session-loaded path)
+    # Handle /start or menu return
     if text_stripped in ["/start", "/menu", "меню", "главное меню", "басты мәзір"]:
         return
     
-    # Handle WhatsApp menu digits (1-7) or AI response for any text
-    if session.get("platform") == "wa" and session.get("state") == "idle":
-        # Check if it's a menu digit
-        wa_menu_map = {
-            "1": "personal_credit",
-            "2": "business_credit",
-            "3": "damu",
-            "4": "mortgage",
-            "5": "refinancing",
-            "6": "complex_case",
-            "7": "operator",
-        }
-        
-        if text_stripped in wa_menu_map:
-            product_key = wa_menu_map[text_stripped]
-            if product_key == "operator":
-                session["state"] = "handoff"
-                session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
-                await tg_client.send_message(chat_id, content.get_operator_message_with_phone(lang, session.get("city")))
-                await _notify_manager(
-                    f"🚨 *Запрос оператора*\nChat: `{chat_id}`\nПлатформа: WhatsApp",
-                    chat_id,
-                    "telegram",
-                    session=session
-                )
-            else:
-                await _start_product_flow(chat_id, product_key, session, lambda m: tg_client.send_message(chat_id, m))
-            return
-        
-        # Check if user asked for menu
-        menu_keywords = ["меню", "menu", "мәзір", "список", "варианты", "нұсқалар"]
-        if any(w in text_stripped.lower() for w in menu_keywords):
-            await tg_client.send_message(chat_id, content.get_wa_menu(lang))
-            return
-        
-        # Otherwise — detect language from text and answer via AI (no menu)
-        kk_chars = set('әіңғүұқөһ')
-        if any(c in text_stripped.lower() for c in kk_chars):
-            session["lang"] = "kk"
-            lang = "kk"
-        else:
-            if not session.get("lang"):
-                session["lang"] = "ru"
-                lang = "ru"
+    # Auto-detect language from text for voice/any input
+    kk_chars = set('әіңғүұқөһ')
+    if any(c in text_stripped.lower() for c in kk_chars):
+        session["lang"] = "kk"
+        lang = "kk"
         
         session["conversation_history"].append({
             "role": "user",
@@ -836,10 +792,7 @@ async def handle_telegram_update(
     menu_keywords = ["меню", "menu", "мәзір", "список", "варианты", "нұсқалар", "/menu"]
     if any(w in text_stripped.lower() for w in menu_keywords) and session.get("state") == "idle":
         lang = session.get("lang", "ru")
-        if session.get("platform") == "wa":
-            await tg_client.send_message(chat_id, content.get_wa_menu(lang))
-        else:
-            await send_with_keyboard(content.get_greeting(lang), content.get_menu_keyboard(lang))
+        await tg_client.send_message(chat_id, content.get_greeting(lang))
         return
 
     # Log message to database
@@ -893,17 +846,11 @@ async def handle_telegram_update(
             return
         
         elif text_stripped == "menu:mortgage":
-            await send_with_keyboard(
-                "Выберите тип ипотеки / Ипотека түрін таңдаңыз:",
-                content.get_mortgage_menu(lang)
-            )
+            await tg_client.send_message(chat_id, "Ипотека — тек офисте кеңес алады. Келіңіз / Приходите в офис.")
             return
         
         elif text_stripped == "menu:main":
-            await send_with_keyboard(
-                content.get_greeting(lang),
-                content.get_menu_keyboard(lang)
-            )
+            await tg_client.send_message(chat_id, content.get_greeting(lang))
             return
         
         elif text_stripped == "action:operator":
@@ -949,18 +896,12 @@ async def handle_telegram_update(
             "text": ai_response,
             "timestamp": time.time()
         })
-        # Send AI response with menu keyboard for Telegram
-        if session.get("platform") == "tg":
-            await send_with_keyboard(ai_response, content.get_menu_keyboard(lang))
-        else:
-            await tg_client.send_message(chat_id, ai_response)
+        # Send AI response (no keyboards, text only)
+        await tg_client.send_message(chat_id, ai_response)
     else:
         # AI failed — give friendly fallback (not 'не понял')
         fallback_msg = content.get_ai_fallback_message(lang, session.get("city"))
-        if session.get("platform") == "tg":
-            await send_with_keyboard(fallback_msg, content.get_menu_keyboard(lang))
-        else:
-            await tg_client.send_message(chat_id, fallback_msg)
+        await tg_client.send_message(chat_id, fallback_msg)
 
 
 async def handle_whatsapp_update(

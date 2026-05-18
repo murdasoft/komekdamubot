@@ -44,50 +44,6 @@ GREETING_KK = (
     "• төмендегі нұсқалардың бірін таңдай аласыз"
 )
 
-# Menu buttons (Telegram inline)
-MENU_KEYBOARD_RU = {
-    "inline_keyboard": [
-        [{"text": "💰 Кредит для себя", "callback_data": "product:personal_credit"}],
-        [{"text": "🏢 Кредит для бизнеса", "callback_data": "product:business_credit"}],
-        [{"text": "📊 DAMU 12,6%", "callback_data": "product:damu"}],
-        [{"text": "🏠 Ипотека", "callback_data": "menu:mortgage"}],
-        [{"text": "🔄 Рефинансирование", "callback_data": "product:refinancing"}],
-        [{"text": "⚠️ Сложный случай", "callback_data": "product:complex_case"}],
-        [{"text": "👨‍💼 Связаться с менеджером", "callback_data": "action:operator"}],
-        [{"text": "📱 Как выглядит в WhatsApp", "callback_data": "demo:whatsapp"}],
-    ]
-}
-
-MENU_KEYBOARD_KK = {
-    "inline_keyboard": [
-        [{"text": "💰 Жеке несие", "callback_data": "product:personal_credit"}],
-        [{"text": "🏢 Бизнес несиесі", "callback_data": "product:business_credit"}],
-        [{"text": "📊 DAMU 12,6%", "callback_data": "product:damu"}],
-        [{"text": "🏠 Ипотека", "callback_data": "menu:mortgage"}],
-        [{"text": "🔄 Қайта қаржыландыру", "callback_data": "product:refinancing"}],
-        [{"text": "⚠️ Қиын жағдай", "callback_data": "product:complex_case"}],
-        [{"text": "👨‍💼 Менеджермен байланысу", "callback_data": "action:operator"}],
-        [{"text": "📱 WhatsApp-тағы көрінісі", "callback_data": "demo:whatsapp"}],
-    ]
-}
-
-# Mortgage submenu
-MORTGAGE_MENU_RU = {
-    "inline_keyboard": [
-        [{"text": "🏛️ Госпрограмма (2-9%)", "callback_data": "product:mortgage_gov"}],
-        [{"text": "🏦 Обычная ипотека", "callback_data": "product:mortgage_standard"}],
-        [{"text": "⬅️ Назад", "callback_data": "menu:main"}],
-    ]
-}
-
-MORTGAGE_MENU_KK = {
-    "inline_keyboard": [
-        [{"text": "🏛️ Мемлекеттік (2-9%)", "callback_data": "product:mortgage_gov"}],
-        [{"text": "🏦 Қарапайым ипотека", "callback_data": "product:mortgage_standard"}],
-        [{"text": "⬅️ Артқа", "callback_data": "menu:main"}],
-    ]
-}
-
 # City phones
 CITY_PHONES = {
     "almaty":   "8 707 339 10 39",
@@ -311,22 +267,6 @@ def get_language_keyboard() -> dict:
 
 def get_greeting(lang: str = "ru") -> str:
     return GREETING_RU if lang == "ru" else GREETING_KK
-
-
-def get_menu_keyboard(lang: str = "ru") -> dict:
-    return MENU_KEYBOARD_RU if lang == "ru" else MENU_KEYBOARD_KK
-
-
-def get_mortgage_menu(lang: str = "ru") -> dict:
-    return MORTGAGE_MENU_RU if lang == "ru" else MORTGAGE_MENU_KK
-
-
-def get_whatsapp_demo(lang: str = "ru") -> str:
-    return WHATSAPP_DEMO_RU if lang == "ru" else WHATSAPP_DEMO_KK
-
-
-def get_wa_menu(lang: str = "ru") -> str:
-    return WA_MENU_RU if lang == "ru" else WA_MENU_KK
 
 
 def get_wa_intro(lang: str = "ru") -> str:
