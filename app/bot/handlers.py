@@ -284,65 +284,101 @@ async def _handle_ai_response(
     return response
 
 
-# Kazakh-specific characters (exclusive to Kazakh, not in Russian)
+# Kazakh-specific characters (exclusive to Kazakh)
 _KK_CHARS = set('әіңғүұқөһӘІҢҒҮҰҚӨҺ')
 
-# Kazakh-specific words/stems (substring match, lowercase)
-# These are markers that ALWAYS indicate Kazakh regardless of other content
-_KK_MARKERS = (
-    # Core verbs / particles
-    "керек", "жоқ", "болады", "болмайды", "болсын", "болса", "болмаса",
-    "беріледі", "беремін", "береміз", "берсе", "беру", "береді",
-    "алу", "аламын", "алсам", "алады", "алыңыз",
-    "келіңіз", "келсем", "келеді", "кел",
-    "бар", "бар ма", "бар еді", "жоғары", "төмен",
-    # Pronouns / persons
-    "мен", "сен", "сіз", "біз", "сіздер", "маған", "саған", "оған",
-    "бізге", "сізге", "менде", "сенде", "сізде", "бізде",
-    # Nouns from finance domain
-    "несие", "даму", "пайыз", "мерзім", "құжат", "қарыз", "өтініш",
-    "жеке тұлға", "жеке тулга", "жеке", "тұлға", "тулга",
-    "пенсионка", "пенсионкамен", "пенсионкасыз",
-    "ашық", "ашык", "просрочка болмауы", "просрочка болмаса",
-    "ипотека керек", "ипота керек", "ипга керек",
-    "ип керек", "ип бар", "ипга", "ип ге", "ип-ге",
-    "тоо керек", "тоо бар",
-    "офис", "офиске", "офисімізге", "офисіміз",
-    "ұлы", "үшін", "арнап",
+# Whole-word Kazakh markers (matched with word boundaries to avoid false positives like 'мен' in 'именно')
+# Includes both pure Kazakh AND shala-kazakh transliterations (no special chars)
+_KK_WORDS = {
+    # Core verbs / modal
+    "керек", "жоқ", "жок", "бар", "иә", "ия", "иа",
+    "болады", "болмайды", "болсын", "болса", "болмаса", "бола",
+    "беріледі", "беремін", "беремын", "береміз", "берем", "берсе", "беру", "береді", "берсиз",
+    "алу", "алам", "аламын", "алсам", "алады", "алыңыз", "ал",
+    "келіңіз", "келиниз", "келсем", "келеді", "келеди", "кел",
+    "істемейді", "истемейди", "істемей", "истемей",
+    # Pronouns / persons (full transliteration)
+    "сіз", "сиз", "сіздер", "сиздер",
+    "біз", "биз", "ол", "олар",
+    "маған", "маган", "саған", "саган", "оған", "оган",
+    "бізге", "бизге", "сізге", "сизге",
+    "менде", "сенде", "сізде", "сизде", "бізде", "бизде",
+    # Finance vocabulary
+    "несие", "несиеси", "даму", "пайыз", "пайызы", "мерзім", "мерзими",
+    "құжат", "кужат", "қарыз", "карыз", "өтініш", "отиниш",
+    "тұлға", "тулга", "жеке",
+    "пенсионкамен", "пенсионкасыз",
+    "ашық", "ашык",
+    "ипга", "ипге",
+    # Conjunctions / particles
+    "бірақ", "бирак", "және", "немесе", "сонда", "сосын",
+    "деп", "деген", "дейді", "дейді", "дейді",
+    "үшін", "ушин",
+    "жұмыс", "жумыс", "жұмысым", "жумысым",
     # Greetings / phatic
-    "сәлем", "салем", "сәлеметсізбе", "салеметсізбе", "салеметсызба",
-    "рахмет", "рақмет", "жақсы", "жаксы", "иә", "ия",
-    "түсінбедім", "тусинбедим", "қалай", "калай", "қанша", "канша", "неше",
-    # Question / inquiry forms
-    "бойынша", "туралы", "арналған", "арнайы",
-    # Other common
-    "дейін", "дейын", "беріп", "берген", "болған", "болғы",
-    "жоғарыда", "соңында", "қазір", "бұгін", "ертең",
-    "сұрақ", "сурак", "жауап", "хабарласыңыз",
-    "үй", "уй алу", "квартира керек",
-    "бар еді", "бар едi",
+    "сәлем", "салем", "рахмет", "рақмет", "рахмет",
+    "жақсы", "жаксы", "ия", "иа",
+    "қалай", "калай", "қанша", "канша", "неше",
+    "сұрақ", "сурак", "жауап",
+    # Inquiry / questions
+    "бойынша", "туралы", "арналған", "арналган", "арнайы", "арнап",
+    "қашан", "кашан", "қайда", "кайда", "не",
+    # Time / modifiers
+    "дейін", "дейин", "дейын",
+    "қазір", "казир", "бүгін", "буген", "ертең", "ертен",
+    "жоғары", "жогары", "төмен", "томен",
+    # Misc
+    "үй", "уй",
+    "офис", "офиске", "офисіміз", "офисимиз", "офисімізге", "офисимизге",
+    "хабарласыңыз", "хабарласыныз",
+}
+
+# Multi-word Kazakh phrases (matched as substrings)
+_KK_PHRASES = (
+    "жеке тұлға", "жеке тулга",
+    "бар еді", "бар еди", "бар едi",
+    "ип бар", "тоо бар",
+    "ип керек", "тоо керек",
+    "ипотека керек", "ипота керек", "ипга керек",
+    "несие керек", "несие алу", "несие беру",
+    "просрочка болмауы", "просрочка болмаса", "просрочка болмайды",
+    "ашық просрочка", "ашык просрочка",
+    "уй алу", "квартира керек",
+    "бересиздерма", "бересіздерма", "беремесінде",
+    "сәлеметсіз бе", "салеметсиз бе", "салеметсизбе", "сәлеметсізбе",
+    "түсінбедім", "тусинбедим",
 )
+
+import re as _re
+_WORD_RE = _re.compile(r'[a-zа-яёәіңғүұқөһ]+', _re.IGNORECASE)
 
 
 def _detect_lang(text: str) -> str:
     """
-    Ultimate Kazakh detector: ANY Kazakh-specific character OR any Kazakh marker => kk.
-    Russian is the default fallback.
+    Robust shala-kazakh detector:
+    1) Any Kazakh-specific character → kk
+    2) Any multi-word Kazakh phrase → kk
+    3) Any whole word matching Kazakh word set (with word boundaries) → kk
+    4) Default → ru
     """
     if not text:
         return "ru"
     lower = text.lower()
 
-    # 1. Any Kazakh-specific letter — instantly Kazakh
+    # 1. Any Kazakh-specific letter — instant Kazakh
     if any(c in _KK_CHARS for c in lower):
         return "kk"
 
-    # 2. Any Kazakh marker (word/phrase) — Kazakh
-    for marker in _KK_MARKERS:
-        if marker in lower:
+    # 2. Multi-word phrases (substring match)
+    for phrase in _KK_PHRASES:
+        if phrase in lower:
             return "kk"
 
-    # 3. Default — Russian
+    # 3. Whole-word match (word boundaries) — avoids false positives
+    words = set(_WORD_RE.findall(lower))
+    if words & _KK_WORDS:
+        return "kk"
+
     return "ru"
 
 
