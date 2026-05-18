@@ -126,6 +126,24 @@ def get_unknown_message_with_phone(lang: str, city: str | None = None) -> str:
     return (f"Извините, не совсем понял ваш запрос.\n\nВы можете:\n• Позвонить: {phone}\n• Написать /start для возврата в меню")
 
 
+def get_ai_fallback_message(lang: str, city: str | None = None) -> str:
+    """Used when AI service fails — invite to office with phone."""
+    phone = get_city_phone(city)
+    if lang == "kk":
+        return (
+            "Сізге арнап ең қолайлы шарттарды табамыз. "
+            "Толық кеңес алу үшін офиске келіңіз немесе қоңырау шалыңыз.\n\n"
+            f"📞 {phone}\n"
+            "Негізгі мәзір үшін /start"
+        )
+    return (
+        "Подберём для вас оптимальные условия. "
+        "Для подробной консультации приглашаем в офис или позвоните нам.\n\n"
+        f"📞 {phone}\n"
+        "Главное меню — /start"
+    )
+
+
 UNKNOWN_RU = get_unknown_message_with_phone("ru")
 UNKNOWN_KK = get_unknown_message_with_phone("kk")
 

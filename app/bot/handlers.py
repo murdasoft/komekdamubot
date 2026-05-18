@@ -284,93 +284,108 @@ async def _handle_ai_response(
     return response
 
 
+# Kazakh-specific characters (exclusive to Kazakh, not in Russian)
+_KK_CHARS = set('әіңғүұқөһӘІҢҒҮҰҚӨҺ')
+
+# Kazakh-specific words/stems (substring match, lowercase)
+# These are markers that ALWAYS indicate Kazakh regardless of other content
+_KK_MARKERS = (
+    # Core verbs / particles
+    "керек", "жоқ", "болады", "болмайды", "болсын", "болса", "болмаса",
+    "беріледі", "беремін", "береміз", "берсе", "беру", "береді",
+    "алу", "аламын", "алсам", "алады", "алыңыз",
+    "келіңіз", "келсем", "келеді", "кел",
+    "бар", "бар ма", "бар еді", "жоғары", "төмен",
+    # Pronouns / persons
+    "мен", "сен", "сіз", "біз", "сіздер", "маған", "саған", "оған",
+    "бізге", "сізге", "менде", "сенде", "сізде", "бізде",
+    # Nouns from finance domain
+    "несие", "даму", "пайыз", "мерзім", "құжат", "қарыз", "өтініш",
+    "жеке тұлға", "жеке тулга", "жеке", "тұлға", "тулга",
+    "пенсионка", "пенсионкамен", "пенсионкасыз",
+    "ашық", "ашык", "просрочка болмауы", "просрочка болмаса",
+    "ипотека керек", "ипота керек", "ипга керек",
+    "ип керек", "ип бар", "ипга", "ип ге", "ип-ге",
+    "тоо керек", "тоо бар",
+    "офис", "офиске", "офисімізге", "офисіміз",
+    "ұлы", "үшін", "арнап",
+    # Greetings / phatic
+    "сәлем", "салем", "сәлеметсізбе", "салеметсізбе", "салеметсызба",
+    "рахмет", "рақмет", "жақсы", "жаксы", "иә", "ия",
+    "түсінбедім", "тусинбедим", "қалай", "калай", "қанша", "канша", "неше",
+    # Question / inquiry forms
+    "бойынша", "туралы", "арналған", "арнайы",
+    # Other common
+    "дейін", "дейын", "беріп", "берген", "болған", "болғы",
+    "жоғарыда", "соңында", "қазір", "бұгін", "ертең",
+    "сұрақ", "сурак", "жауап", "хабарласыңыз",
+    "үй", "уй алу", "квартира керек",
+    "бар еді", "бар едi",
+)
+
+
 def _detect_lang(text: str) -> str:
-    """Detect language from text. Russian wins if mixed — only pure Kazakh triggers kk."""
+    """
+    Ultimate Kazakh detector: ANY Kazakh-specific character OR any Kazakh marker => kk.
+    Russian is the default fallback.
+    """
+    if not text:
+        return "ru"
     lower = text.lower()
-    words = set(lower.split())
 
-    # Strong Russian signals — if present, it's Russian regardless
-    ru_chars = set('ёъэ')  # ы removed: exists in Kazakh too
-    if any(c in lower for c in ru_chars):
-        return "ru"
-    # Common Russian-only words
-    ru_words = {"здравствуйте", "привет", "хочу", "можно", "нужно", "мне", "как",
-                "что", "это", "есть", "не", "да", "нет", "хорошо", "спасибо",
-                "взять", "оформить", "получить", "узнать", "сколько", "какой",
-                "ваш", "наш", "для", "при", "без", "под", "про", "или"}
-    if len(words & ru_words) >= 1:
-        return "ru"
-
-    # Kazakh-specific characters
-    kk_chars = set('әіңғүұқөһ')
-    if any(c in lower for c in kk_chars):
+    # 1. Any Kazakh-specific letter — instantly Kazakh
+    if any(c in _KK_CHARS for c in lower):
         return "kk"
 
-    # Kazakh-specific words (exact)
-    kk_words = {
-        "керек", "жоқ", "алу", "беру", "болды", "береспа", "аламын",
-        "болады", "маған", "саған", "оған", "бізге", "сізге", "қалай",
-        "неше", "қанша", "салеметсізбе", "сәлем", "рахмет", "жақсы",
-        "иә", "өтінем", "қарыз", "пайыз", "мерзім", "құжат",
-        "бола", "болса", "алсам", "берсе", "келсем", "барсам",
-        "несие", "даму", "жеке", "тұлға", "тулга", "тулга",
-        "пенсионкамен", "пенсионкасыз", "дейін", "дейын",
-        "ашық", "просрочка", "болмаса", "келіңіз", "беріледі"
-    }
-    if len(words & kk_words) >= 1:
-        return "kk"
-    # Kazakh suffix forms (substrings)
-    kk_stems = ["бойынша", "алуға", "беруге", "болуға", "несие", "орайынша",
-                "болады", "келіңіз", "офисіміз", "жеке тұлға", "жеке тулга",
-                "пенсионка", "дейін", "дейын", "беріледі", "болмауы"]
-    if any(stem in lower for stem in kk_stems):
-        return "kk"
-    # Transliterated kazakh greetings/words (no special chars)
-    kk_translit = ["салеметсезбе", "саламетсызба", "салем", "рахмет", "жаксы",
-                   "кайда", "канша", "несие", "болады", "керек"]
-    if any(t in lower for t in kk_translit):
-        return "kk"
+    # 2. Any Kazakh marker (word/phrase) — Kazakh
+    for marker in _KK_MARKERS:
+        if marker in lower:
+            return "kk"
 
+    # 3. Default — Russian
     return "ru"
 
 
 def _update_session_lang(text: str, session: Dict) -> str:
     """
-    Sticky language: session lang only switches after 3 consecutive messages in another language.
-    If no lang set yet — detect and ask via ASK_LANG signal if ambiguous.
+    Sticky language with instant Kazakh switch.
+    - First message: set immediately.
+    - If Kazakh detected: switch IMMEDIATELY (detector is strict — no false positives).
+    - If Russian after Kazakh: only switch after 2 consecutive Russian messages.
     """
     detected = _detect_lang(text)
     current_lang = session.get("lang")
 
     if not current_lang:
-        # First message — set immediately
         session["lang"] = detected
         session["lang_streak"] = 1
         return detected
 
-    if detected == current_lang:
-        # Same lang — reset counter
+    # Instant switch to Kazakh — detector is reliable
+    if detected == "kk":
+        session["lang"] = "kk"
         session["lang_streak"] = 1
-        return current_lang
+        session.pop("lang_streak_candidate", None)
+        return "kk"
 
-    # Different lang detected — increment streak
-    streak = session.get("lang_streak", 1)
-    if detected != current_lang:
-        if session.get("lang_streak_candidate") == detected:
+    # If was Kazakh and now Russian detected — require 2 consecutive Russian
+    if current_lang == "kk" and detected == "ru":
+        streak = session.get("lang_streak", 1)
+        if session.get("lang_streak_candidate") == "ru":
             streak += 1
         else:
             streak = 1
-        session["lang_streak_candidate"] = detected
+        session["lang_streak_candidate"] = "ru"
         session["lang_streak"] = streak
+        if streak >= 2:
+            session["lang"] = "ru"
+            session["lang_streak"] = 1
+            session.pop("lang_streak_candidate", None)
+            return "ru"
+        return "kk"
 
-    if streak >= 2:
-        # Switch confirmed
-        session["lang"] = detected
-        session["lang_streak"] = 1
-        session.pop("lang_streak_candidate", None)
-        return detected
-
-    # Not enough streak — keep current lang
+    # Same Russian — keep
+    session["lang_streak"] = 1
     return current_lang
 
 
@@ -806,7 +821,7 @@ async def handle_telegram_update(
             })
             await tg_client.send_message(chat_id, ai_response)
         else:
-            await tg_client.send_message(chat_id, content.get_unknown_message(lang))
+            await tg_client.send_message(chat_id, content.get_ai_fallback_message(lang, session.get("city")))
         await save_session(chat_id, session)
         return
     
@@ -882,7 +897,7 @@ async def handle_telegram_update(
                 # Mark session as directed to office — repeat office reminder on further messages
                 session["state"] = "office_directed"
         else:
-            await tg_client.send_message(chat_id, content.get_unknown_message(lang))
+            await tg_client.send_message(chat_id, content.get_ai_fallback_message(lang, session.get("city")))
         await save_session(chat_id, session)
         return
     
@@ -958,12 +973,12 @@ async def handle_telegram_update(
         else:
             await tg_client.send_message(chat_id, ai_response)
     else:
-        # Random response for unknown
-        random_fallback = get_random_response("unknown", lang)
+        # AI failed — give friendly fallback (not 'не понял')
+        fallback_msg = content.get_ai_fallback_message(lang, session.get("city"))
         if session.get("platform") == "tg":
-            await send_with_keyboard(random_fallback + "\n\n" + content.get_unknown_message(lang), content.get_menu_keyboard(lang))
+            await send_with_keyboard(fallback_msg, content.get_menu_keyboard(lang))
         else:
-            await tg_client.send_message(chat_id, random_fallback + "\n\n" + content.get_unknown_message(lang))
+            await tg_client.send_message(chat_id, fallback_msg)
 
 
 async def handle_whatsapp_update(
@@ -1120,5 +1135,5 @@ async def handle_whatsapp_update(
                 chat_id, "whatsapp", session=session
             )
     else:
-        await send_wa_with_hint(content.get_unknown_message_with_phone(lang, session.get("city")))
+        await send_wa_with_hint(content.get_ai_fallback_message(lang, session.get("city")))
     await save_session(chat_id, session)
