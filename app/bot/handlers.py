@@ -313,13 +313,16 @@ def _detect_lang(text: str) -> str:
         "неше", "қанша", "салеметсізбе", "сәлем", "рахмет", "жақсы",
         "иә", "өтінем", "қарыз", "пайыз", "мерзім", "құжат",
         "бола", "болса", "алсам", "берсе", "келсем", "барсам",
-        "несие", "даму"
+        "несие", "даму", "жеке", "тұлға", "тулга", "тулга",
+        "пенсионкамен", "пенсионкасыз", "дейін", "дейын",
+        "ашық", "просрочка", "болмаса", "келіңіз", "беріледі"
     }
     if len(words & kk_words) >= 1:
         return "kk"
     # Kazakh suffix forms (substrings)
     kk_stems = ["бойынша", "алуға", "беруге", "болуға", "несие", "орайынша",
-                "болады", "келіңіз", "офисіміз"]
+                "болады", "келіңіз", "офисіміз", "жеке тұлға", "жеке тулга",
+                "пенсионка", "дейін", "дейын", "беріледі", "болмауы"]
     if any(stem in lower for stem in kk_stems):
         return "kk"
     # Transliterated kazakh greetings/words (no special chars)
@@ -360,7 +363,7 @@ def _update_session_lang(text: str, session: Dict) -> str:
         session["lang_streak_candidate"] = detected
         session["lang_streak"] = streak
 
-    if streak >= 3:
+    if streak >= 2:
         # Switch confirmed
         session["lang"] = detected
         session["lang_streak"] = 1
