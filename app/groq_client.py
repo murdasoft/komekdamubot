@@ -94,6 +94,7 @@ class GroqClient:
                 r.raise_for_status()
                 result = r.json()
                 text = result.get("text", "").strip()
+                logger.info(f"Groq STT result: '{text[:50]}...' lang={language}")
                 return text if text else None, None
         except httpx.HTTPStatusError as e:
             err = f"HTTP {e.response.status_code}: {e.response.text}"
