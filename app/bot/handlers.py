@@ -673,38 +673,65 @@ async def handle_telegram_update(
                 await tg_client.send_message(chat_id, "Формат: /reply CHAT_ID текст")
         return
 
-    # Handle /start immediately without loading session
+    # Handle /start immediately — force language selection first
     if text and text.strip() in ["/start", "/menu", "меню", "главное меню", "басты мәзір"]:
         if not chat_id or chat_id == "None":
             logger.error(f"Invalid chat_id for /start: {chat_id}")
             return
         _reset_session(chat_id, "tg")
-        _sessions[chat_id]["state"] = "idle"
+        _sessions[chat_id]["state"] = "selecting_lang"
         _sessions[chat_id]["platform"] = "tg"
         await save_session(chat_id, _sessions[chat_id])
-        greeting = (
-            "Сәлеметсіз бе! Мен KOMEK DAMU кеңесшісімін 👋\n"
-            "Здравствуйте! Я консультант KOMEK DAMU 👋\n\n"
-            "Несие, ипотека, бизнес қаржыландыру бойынша сұрақтарыңызды қойыңыз — жауап беремін.\n"
-            "Задавайте вопросы по кредитам, ипотеке, бизнес-финансированию — отвечу."
+        lang_prompt = (
+            "👋 *KOMEK DAMU*\n\n"
+            "🌐 *Тілді таңдаңыз / Выберите язык:*\n\n"
+            "1️⃣ *Қазақша*\n"
+            "2️⃣ *Русский*\n\n"
+            "_Сізге 1 немесе 2 деп жазыңыз / Напишите 1 или 2_"
         )
-        logger.info(f"Sending /start greeting to chat_id={chat_id}")
+        logger.info(f"Sending language selection to chat_id={chat_id}")
         try:
-            await tg_client.send_message(chat_id, greeting)
+            await tg_client.send_message(chat_id, lang_prompt, parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Failed to send /start response: {e}")
         return
     
-    # Handle 99 for language selection
+    # Handle language selection (1 or 2)
+    if text and text.strip() in ["1", "2"]:
+        session = await _get_session(chat_id)
+        if session.get("state") == "selecting_lang":
+            selected_lang = "kk" if text.strip() == "1" else "ru"
+            session["lang"] = selected_lang
+            session["state"] = "idle"
+            await save_session(chat_id, session)
+            
+            if selected_lang == "kk":
+                greeting = (
+                    "Сәлеметсіз бе! Мен KOMEK DAMU кеңесшісімін 👋\n\n"
+                    "Несие, ипотека, бизнес қаржыландыру бойынша сұрақтарыңызды қойыңыз — жауап беремін.\n\n"
+                    "📋 Қызметтер тізімі: /menu"
+                )
+            else:
+                greeting = (
+                    "Здравствуйте! Я консультант KOMEK DAMU 👋\n\n"
+                    "Задавайте вопросы по кредитам, ипотеке, бизнес-финансированию — отвечу.\n\n"
+                    "📋 Список услуг: /menu"
+                )
+            await tg_client.send_message(chat_id, greeting)
+            return
+    
+    # Handle 99 for language re-selection (from menu)
     if text and text.strip() == "99":
         session = await _get_session(chat_id)
         session["state"] = "selecting_lang"
         await save_session(chat_id, session)
-        await tg_client.send_message(
-            chat_id,
-            content.get_language_prompt("ru"),
-            reply_markup=content.get_language_keyboard()
+        lang_prompt = (
+            "🌐 *Тілді ауыстыру / Сменить язык:*\n\n"
+            "1️⃣ *Қазақша*\n"
+            "2️⃣ *Русский*\n\n"
+            "_Жазыңыз 1 или 2 / Напишите 1 или 2_"
         )
+        await tg_client.send_message(chat_id, lang_prompt, parse_mode="Markdown")
         return
     
     session = await _get_session(chat_id)
