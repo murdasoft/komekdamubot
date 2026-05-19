@@ -144,15 +144,17 @@ def detect_calculator_intent(text: str) -> tuple[bool, dict | None]:
     # Match patterns like: 200 млн, 200000, 12.6%, 3 года, 36 месяцев
     numbers = re.findall(r'\d+(?:[.,]\d+)?', text)
     
-    # Product detection
+    # Product detection - use word boundaries to avoid partial matches
     product = None
-    if any(w in text_lower for w in ["тоо", "төо", "тово", "too"]):
+    words = set(re.findall(r'\b\w+\b', text_lower))
+    
+    if words & {"тоо", "төо", "тово", "too"}:
         product = "too"
-    elif any(w in text_lower for w in ["ипотека", "ипотек", "ипотекасы", "mortgage", "үй", "квартира"]):
+    elif words & {"ипотека", "ипотек", "ипотекасы", "mortgage", "үй", "квартира"}:
         product = "mortgage"
-    elif any(w in text_lower for w in ["ип", "жеке кәсіпкер", "иң", "индивидуальный"]):
+    elif words & {"ип", "жеке", "кәсіпкер", "иң", "индивидуальный"}:
         product = "ip"
-    elif any(w in text_lower for w in ["физлицо", "физическое", "физ", "жеке тұлға"]):
+    elif words & {"физлицо", "физическое", "физ", "жеке", "тұлға"}:
         product = "personal"
     
     # Default values based on product
