@@ -6,6 +6,7 @@ Supports: Telegram + WhatsApp, Russian + Kazakh, Voice messages.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any, Dict, Optional, List
 from collections import defaultdict
@@ -92,6 +93,160 @@ def detect_small_talk_intent(text: str) -> str | None:
             return "bye"
     
     return None
+
+
+def calculate_loan_payment(amount: float, rate: float, years: int) -> tuple[float, float]:
+    """Calculate monthly loan payment using annuity formula.
+    
+    Args:
+        amount: Loan amount (principal)
+        rate: Annual interest rate (e.g., 12.6 for 12.6%)
+        years: Loan term in years
+    
+    Returns:
+        (monthly_payment, total_payment)
+    """
+    monthly_rate = rate / 100 / 12
+    months = years * 12
+    
+    if monthly_rate == 0:
+        monthly = amount / months
+    else:
+        monthly = amount * (monthly_rate * (1 + monthly_rate) ** months) / ((1 + monthly_rate) ** months - 1)
+    
+    total = monthly * months
+    return round(monthly, 0), round(total, 0)
+
+
+def detect_calculator_intent(text: str) -> tuple[bool, dict | None]:
+    """Detect if user wants to calculate loan payment.
+    
+    Returns:
+        (is_calculation, params_dict or None)
+        params_dict: {'amount', 'rate', 'years', 'product'}
+    """
+    text_lower = text.lower()
+    
+    # Keywords for calculation
+    calc_keywords = [
+        "рассчитай", "сколько платить", "платеж", "калькулятор", "выплата", 
+        "посчитай", "сколько будет", "ежемесячный", "аннуитет",
+        "если возьму", "хочу взять", "планирую взять",
+        "есіптей", "есептеу", "түсім", "калькулятор", "алсам", "алмақпын"
+    ]
+    
+    has_calc_keyword = any(kw in text_lower for kw in calc_keywords)
+    
+    if not has_calc_keyword:
+        return False, None
+    
+    # Extract numbers (amount, rate, term)
+    # Match patterns like: 200 млн, 200000, 12.6%, 3 года, 36 месяцев
+    numbers = re.findall(r'\d+(?:[.,]\d+)?', text)
+    
+    # Product detection
+    product = None
+    if any(w in text_lower for w in ["тоо", "төо", "тово", "too"]):
+        product = "too"
+    elif any(w in text_lower for w in ["ип", "жеке кәсіпкер", "иң", "индивидуальный"]):
+        product = "ip"
+    elif any(w in text_lower for w in ["ипотека", "ипотек", "ипотекасы", "mortgage", "үй", "квартира"]):
+        product = "mortgage"
+    elif any(w in text_lower for w in ["физлицо", "физическое", "физ", "жеке тұлға"]):
+        product = "personal"
+    
+    # Default values based on product
+    defaults = {
+        "too": {"amount": 200_000_000, "rate": 12.6, "years": 3},
+        "ip": {"amount": 35_000_000, "rate": 21.0, "years": 3},
+        "mortgage": {"amount": 50_000_000, "rate": 7.0, "years": 15},
+        "personal": {"amount": 15_000_000, "rate": 18.0, "years": 5},
+    }
+    
+    params = {
+        "amount": None,
+        "rate": None,
+        "years": None,
+        "product": product,
+    }
+    
+    # Parse extracted numbers
+    for num_str in numbers:
+        num = float(num_str.replace(',', '.'))
+        
+        # Amount: if > 1000 (assume in thousands) or has "млн", "миллион"
+        if num > 1000 and params["amount"] is None:
+            if "млн" in text_lower or "миллион" in text_lower or "миллион" in text_lower:
+                params["amount"] = num * 1_000_000
+            elif num > 1_000_000:
+                params["amount"] = num
+            elif num > 100_000:
+                params["amount"] = num
+        
+        # Rate: if has % or between 2-50
+        if ("%" in text or (2 <= num <= 50)) and params["rate"] is None:
+            params["rate"] = num
+        
+        # Years: if has "год", "лет", "жыл" or between 1-30 without other context
+        year_keywords = ["год", "лет", "года", "жыл", "жылды", "летний", "year"]
+        if any(yk in text_lower for yk in year_keywords) or (1 <= num <= 30 and params["years"] is None):
+            if num <= 30:  # Assume years if <= 30
+                params["years"] = int(num)
+    
+    # Apply defaults for missing values
+    if product and product in defaults:
+        for key, val in defaults[product].items():
+            if params[key] is None:
+                params[key] = val
+    
+    # Must have at least amount to calculate
+    if params["amount"] is None:
+        return False, None
+    
+    # Fill remaining defaults
+    if params["rate"] is None:
+        params["rate"] = 15.0
+    if params["years"] is None:
+        params["years"] = 3
+    
+    return True, params
+
+
+def format_calculator_result(params: dict, lang: str = "ru") -> str:
+    """Format loan calculation result."""
+    amount = params["amount"]
+    rate = params["rate"]
+    years = params["years"]
+    
+    monthly, total = calculate_loan_payment(amount, rate, years)
+    overpay = total - amount
+    
+    # Format numbers
+    amount_str = f"{amount:,.0f}".replace(",", " ")
+    monthly_str = f"{monthly:,.0f}".replace(",", " ")
+    total_str = f"{total:,.0f}".replace(",", " ")
+    overpay_str = f"{overpay:,.0f}".replace(",", " ")
+    
+    if lang == "kk":
+        return (
+            f"💰 Кредит сомасы: {amount_str} ₸\n"
+            f"📊 Мерзімі: {years} жыл\n"
+            f"📈 Пайыздық мөлшерлеме: {rate}%\n\n"
+            f"💳 Ай сайынғы төлем: {monthly_str} ₸\n"
+            f"📝 Жалпы төлем: {total_str} ₸\n"
+            f"⚠️ Асылып кету: {overpay_str} ₸\n\n"
+            f"Толық есептеу үшін офиске келіңіз!"
+        )
+    else:
+        return (
+            f"💰 Сумма кредита: {amount_str} ₸\n"
+            f"📊 Срок: {years} лет\n"
+            f"📈 Процентная ставка: {rate}%\n\n"
+            f"💳 Ежемесячный платёж: {monthly_str} ₸\n"
+            f"📝 Общая сумма выплат: {total_str} ₸\n"
+            f"⚠️ Переплата: {overpay_str} ₸\n\n"
+            f"Для точного расчёта приходите в офис!"
+        )
 
 
 async def _get_session(chat_id: str) -> Dict:
@@ -825,6 +980,20 @@ async def handle_telegram_update(
         await tg_client.send_message(chat_id, response)
         return
     
+    # Check for loan calculator request
+    is_calc, calc_params = detect_calculator_intent(text_stripped)
+    if is_calc and calc_params:
+        calc_result = format_calculator_result(calc_params, lang)
+        await tg_client.send_message(chat_id, calc_result)
+        # Store in history
+        session["conversation_history"].append({
+            "role": "assistant",
+            "text": calc_result,
+            "timestamp": time.time()
+        })
+        await log_message(chat_id, platform, "assistant", calc_result, lang)
+        return
+    
     # AI response for any text (when not in flow)
     if session.get("state") == "idle" and not callback_id:
         # AI response — no flows, just conversation
@@ -1053,6 +1222,21 @@ async def handle_whatsapp_update(
             lambda m: send_wa_with_hint(m),
             groq
         )
+        return
+    
+    # Check for loan calculator request (WhatsApp)
+    is_calc, calc_params = detect_calculator_intent(text_stripped)
+    if is_calc and calc_params:
+        calc_result = format_calculator_result(calc_params, lang)
+        await send_wa_with_hint(calc_result)
+        # Store in history
+        session["conversation_history"] = session.get("conversation_history", [])
+        session["conversation_history"].append({
+            "role": "assistant",
+            "text": calc_result,
+            "timestamp": time.time()
+        })
+        await save_session(chat_id, session)
         return
     
     # AI response for free text
