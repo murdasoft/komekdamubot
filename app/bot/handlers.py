@@ -148,10 +148,10 @@ def detect_calculator_intent(text: str) -> tuple[bool, dict | None]:
     product = None
     if any(w in text_lower for w in ["тоо", "төо", "тово", "too"]):
         product = "too"
-    elif any(w in text_lower for w in ["ип", "жеке кәсіпкер", "иң", "индивидуальный"]):
-        product = "ip"
     elif any(w in text_lower for w in ["ипотека", "ипотек", "ипотекасы", "mortgage", "үй", "квартира"]):
         product = "mortgage"
+    elif any(w in text_lower for w in ["ип", "жеке кәсіпкер", "иң", "индивидуальный"]):
+        product = "ip"
     elif any(w in text_lower for w in ["физлицо", "физическое", "физ", "жеке тұлға"]):
         product = "personal"
     
