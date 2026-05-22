@@ -50,7 +50,12 @@ FAQ_PATTERNS: list[_Pattern] = [
     _Pattern(("ипотек", "пәтер", "квартир", "жилье", "үй сатып"), product_key="mortgage_standard", weight=2),
     _Pattern(("даму", "damu"), product_key="damu", weight=2),
     # Приветствия — короткий ответ без LLM
-    _Pattern(("здравствуй", "добрый день", "добрый вечер", "привет", "салем", "сәлем", "салам"), faq_key="greeting", weight=2),
+    _Pattern(("здравствуй", "добрый день", "добрый вечер", "привет", "салем", "сәлем", "салам", "саламатсыз"), faq_key="greeting", weight=2),
+    _Pattern(
+        ("кепілсіз", "тиімді несие", "35 млн", "500 млн", "25 млн", "200 млн", "komek damu"),
+        faq_key="company_info",
+        weight=3,
+    ),
     _Pattern(("спасибо", "рахмет", "thanks"), faq_key="thanks", weight=2),
     _Pattern(("оператор", "менеджер", "человек", "маман", "связаться с"), faq_key="operator_hint", weight=2),
     _Pattern(("чёрный список", "черный список", "черном списке", "қара тізім"), faq_key="blacklist", weight=4),
@@ -166,8 +171,8 @@ def format_loan_offer(
     from app.bot.loan_calc import format_calculator_result
 
     defaults = {
-        "personal_credit": (18.0, 5),
-        "business_credit": (23.0, 5),
+        "personal_credit": (21.0, 5),
+        "business_credit": (21.0, 5),
         "damu": (12.6, 10),
         "mortgage_standard": (12.0, 20),
         "mortgage_gov": (7.0, 20),
@@ -232,8 +237,14 @@ def try_fast_response(
         return None
 
     if is_pure_greeting(text):
-        g = EXTRA_FAQ["greeting"].get(lang) or EXTRA_FAQ["greeting"]["ru"]
-        return _attach_contacts(g, lang, session_city, platform=platform)
+        from app.bot.formatting import format_welcome
+
+        return _attach_contacts(
+            format_welcome(lang, platform),  # type: ignore[arg-type]
+            lang,
+            session_city,
+            platform=platform,
+        )
 
     norm = _normalize(strip_leading_greeting(text))
     city = resolve_city(text, session_city)
@@ -308,6 +319,13 @@ def try_fast_response(
             need_all = best_faq in ("blacklist", "overdue", "address") and not city
             return _attach_contacts(
                 ans, lang, city, force_all_cities=need_all, platform=platform
+            )
+        if best_faq == "company_info":
+            from app.bot.formatting import format_company_offer
+
+            ans = format_company_offer(lang, platform)  # type: ignore[arg-type]
+            return _attach_contacts(
+                ans, lang, city, force_all_cities=not bool(city), platform=platform
             )
         ans = get_faq_answer(best_faq, lang)
         if ans:

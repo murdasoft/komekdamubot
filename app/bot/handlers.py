@@ -162,8 +162,8 @@ def detect_calculator_intent(text: str) -> tuple[bool, dict | None]:
     
     # Default values based on product
     defaults = {
-        "too": {"amount": 80_000_000, "rate": 12.6, "years": 10},
-        "ip": {"amount": 40_000_000, "rate": 12.6, "years": 10},  # ИП: только залоговый DAMU 12,6%
+        "too": {"amount": 200_000_000, "rate": 21.0, "years": 5},
+        "ip": {"amount": 35_000_000, "rate": 21.0, "years": 5},
         "mortgage": {"amount": 50_000_000, "rate": 7.0, "years": 25},
         "personal": {"amount": 25_000_000, "rate": 21.0, "years": 5},
     }
