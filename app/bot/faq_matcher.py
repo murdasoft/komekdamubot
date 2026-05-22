@@ -122,13 +122,43 @@ def parse_amount_tenge(text: str) -> int | None:
     return max(amounts)
 
 
-def format_loan_offer(product_key: str, amount: int, lang: str) -> str:
-    """Ответ на «хочу кредит N» — условия + примерный платёж."""
-    from app.bot.loan_calc import calculate_loan_payment, format_calculator_result
+def wants_payment_calculation(text: str) -> bool:
+    """Расчёт только если явно просят посчитать платёж."""
+    low = text.lower()
+    markers = (
+        "посчитай", "рассчитай", "сколько платить", "сколько будет",
+        "ежемесяч", "платёж", "платеж", "калькулятор", "аннуитет", "переплат",
+        "есепте", "айлық төлем", "ай сайын",
+    )
+    return any(m in low for m in markers)
 
+
+def format_loan_offer(
+    product_key: str, amount: int, lang: str, *, with_calc: bool = False
+) -> str:
+    """Короткий ответ на «хочу кредит N» — без расчёта, если не просили."""
     info = get_product_info(product_key, lang)
     if not info:
         return format_product_card(product_key, lang)
+
+    amount_str = f"{amount:,}".replace(",", " ")
+    if lang == "kk":
+        body = (
+            f"*{info['name']}* — {amount_str} ₸.\n"
+            "Өтініш үшін «иә» жазыңыз.\n"
+            "Қай қаладасыз?"
+        )
+    else:
+        body = (
+            f"*{info['name']}* — сумма {amount_str} ₸.\n"
+            "Для заявки напишите «да».\n"
+            "Из какого вы города?"
+        )
+
+    if not with_calc:
+        return body
+
+    from app.bot.loan_calc import format_calculator_result
 
     defaults = {
         "personal_credit": (18.0, 5),
@@ -139,28 +169,11 @@ def format_loan_offer(product_key: str, amount: int, lang: str) -> str:
         "refinancing": (18.0, 5),
     }
     rate, years = defaults.get(product_key, (21.0, 5))
-    monthly, total = calculate_loan_payment(float(amount), rate, years)
-    amount_str = f"{amount:,}".replace(",", " ")
-
     calc = format_calculator_result(
         {"amount": amount, "rate": rate, "years": years, "product": "personal"},
         lang,
     )
-
-    if lang == "kk":
-        lead = (
-            f"📋 *{info['name']}*\n\n"
-            f"Сіз *{amount_str} ₸* сома көрдіңіз.\n\n"
-        )
-        cta = "\n\nӨтініш үшін «иә» жазыңыз немесе /start → мәзірден таңдаңыз."
-    else:
-        lead = (
-            f"📋 *{info['name']}*\n\n"
-            f"Вы указали сумму *{amount_str} ₸*.\n\n"
-        )
-        cta = "\n\nЧтобы оформить заявку — напишите «да» или выберите пункт в меню (/start)."
-
-    return lead + calc + cta
+    return f"{body}\n\n{calc}"
 
 
 def _score_pattern(text: str, pattern: _Pattern) -> int:
@@ -175,27 +188,29 @@ def format_product_card(product_key: str, lang: str) -> str:
     info = get_product_info(product_key, lang)
     if not info:
         return ""
-    docs = ", ".join(info["docs"][:3])
     if lang == "kk":
         return (
-            f"📋 *{info['name']}*\n\n"
-            f"{info['description']}\n\n"
-            f"*Шарттар:*\n{info['conditions']}\n\n"
-            f"*Құжаттар:* {docs}\n\n"
-            "Өтініш беру үшін мәзірден таңдаңыз немесе «иә» деп жазыңыз."
+            f"*{info['name']}* — {info['description']}\n"
+            "Өтініш: «иә» немесе /start."
         )
     return (
-        f"📋 *{info['name']}*\n\n"
-        f"{info['description']}\n\n"
-        f"*Условия:*\n{info['conditions']}\n\n"
-        f"*Документы:* {docs}\n\n"
-        "Чтобы оформить заявку — выберите пункт в меню или напишите «да»."
+        f"*{info['name']}* — {info['description']}\n"
+        "Заявка: «да» или /start."
     )
 
 
 def _attach_contacts(answer: str, lang: str, city: str | None, force: bool = False) -> str:
-    if force or "8 7" not in answer:
-        return f"{answer}\n\n{get_contact_footer(city, lang, all_cities=not bool(city))}"
+    """Контакты: один город; без города — не список всех офисов."""
+    if "8 7" in answer and not force:
+        return answer
+    if city:
+        return f"{answer}\n\n{get_contact_footer(city, lang, all_cities=False)}"
+    if force:
+        return f"{answer}\n\n{get_contact_footer(None, lang, all_cities=True)}"
+    if lang == "kk" and "қала" not in answer.lower():
+        return f"{answer}\n\nҚай қаладасыз? Офис пен телефон жібереміз."
+    if lang != "kk" and "город" not in answer.lower():
+        return f"{answer}\n\nИз какого вы города? Подскажу офис и телефон."
     return answer
 
 
@@ -222,11 +237,16 @@ def try_fast_response(
     amount = parse_amount_tenge(text) if business else None
     intent = detect_intent(text)
 
+    calc = wants_payment_calculation(text)
     if business and amount and intent:
-        return _attach_contacts(format_loan_offer(intent, amount, lang), lang, city)
+        return _attach_contacts(
+            format_loan_offer(intent, amount, lang, with_calc=calc), lang, city
+        )
     if business and amount and ("кредит" in norm or "несие" in norm):
         key = intent or "personal_credit"
-        return _attach_contacts(format_loan_offer(key, amount, lang), lang, city)
+        return _attach_contacts(
+            format_loan_offer(key, amount, lang, with_calc=calc), lang, city
+        )
     if business and intent:
         return _attach_contacts(format_product_card(intent, lang), lang, city)
 
@@ -252,7 +272,9 @@ def try_fast_response(
 
     if best_product:
         if amount:
-            return _attach_contacts(format_loan_offer(best_product, amount, lang), lang, city)
+            return _attach_contacts(
+                format_loan_offer(best_product, amount, lang, with_calc=calc), lang, city
+            )
         return _attach_contacts(format_product_card(best_product, lang), lang, city)
 
     if best_faq and best_faq != "greeting":

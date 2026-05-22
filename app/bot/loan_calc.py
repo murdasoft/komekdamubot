@@ -27,20 +27,10 @@ def format_calculator_result(params: dict, lang: str = "ru") -> str:
 
     if lang == "kk":
         return (
-            f"💰 Кредит сомасы: {amount_str} ₸\n"
-            f"📊 Мерзімі: {years} жыл\n"
-            f"📈 Пайыздық мөлшерлеме: {rate}%\n\n"
-            f"💳 Ай сайынғы төлем: {monthly_str} ₸\n"
-            f"📝 Жалпы төлем: {total_str} ₸\n"
-            f"⚠️ Асылып кету: {overpay_str} ₸\n\n"
-            f"Толық есептеу үшін офиске келіңіз!"
+            f"Шамамен ай сайын: ~{monthly_str} ₸ ({rate}%, {years} жыл).\n"
+            f"Нақты есеп — офисте."
         )
     return (
-        f"💰 Сумма кредита: {amount_str} ₸\n"
-        f"📊 Срок: {years} лет\n"
-        f"📈 Процентная ставка: {rate}%\n\n"
-        f"💳 Ежемесячный платёж: {monthly_str} ₸\n"
-        f"📝 Общая сумма выплат: {total_str} ₸\n"
-        f"⚠️ Переплата: {overpay_str} ₸\n\n"
-        f"Для точного расчёта приходите в офис!"
+        f"Примерно в месяц: ~{monthly_str} ₸ ({rate}%, {years} лет).\n"
+        f"Точный расчёт — в офисе."
     )
