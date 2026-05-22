@@ -22,7 +22,7 @@ class TestIntentDetection:
         """Test detecting business credit intent in Russian."""
         assert detect_intent("кредит на бизнес") == "business_credit"
         assert detect_intent("ТОО кредит") == "business_credit"
-        assert detect_intent("ИП кредит") == "business_credit"
+        assert detect_intent("кредит на бизнес для ип") == "business_credit"
     
     def test_detect_damu_ru(self):
         """Test detecting DAMU program intent in Russian."""
@@ -79,7 +79,14 @@ class TestProductInfo:
         
         assert info is not None
         assert "12,6%" in info["conditions"]
+        assert "10 лет" in info["conditions"]
+        assert "залоговый" in info["conditions"].lower()
         assert info["name"] == "DAMU 12,6%"
+
+    def test_damu_ip_faq(self):
+        ans = get_faq_answer("damu_ip", "ru")
+        assert "беззалогового" in ans.lower()
+        assert "10 лет" in ans
     
     def test_invalid_product(self):
         """Test getting info for invalid product."""

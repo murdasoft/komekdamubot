@@ -9,7 +9,13 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from app.bot.knowledge_base import PRODUCTS, detect_intent, get_faq_answer, get_product_info
+from app.bot.knowledge_base import (
+    PRODUCTS,
+    detect_intent,
+    get_faq_answer,
+    get_product_info,
+    is_damu_ip_question,
+)
 from app.bot.text_utils import is_pure_greeting, strip_leading_greeting
 from app.offices import get_contact_footer, detect_city
 
@@ -49,7 +55,11 @@ FAQ_PATTERNS: list[_Pattern] = [
     _Pattern(("оператор", "менеджер", "человек", "маман", "связаться с"), faq_key="operator_hint", weight=2),
     _Pattern(("чёрный список", "черный список", "черном списке", "қара тізім"), faq_key="blacklist", weight=4),
     _Pattern(("просрочк", "кешігу", "задолжал"), faq_key="overdue", weight=4),
-    _Pattern(("ип без залог", "ип залог", "даму ип", "жк даму"), faq_key="damu_ip", weight=3),
+    _Pattern(
+        ("ип без залог", "беззалогов", "даму ип", "жк даму", "даму для ип", "ип даму"),
+        faq_key="damu_ip",
+        weight=4,
+    ),
 ]
 
 # Доп. ответы (не в knowledge_base FAQ_ANSWERS)
@@ -71,10 +81,6 @@ EXTRA_FAQ = {
     "overdue": {
         "ru": "С открытыми просрочками кредит не одобряем. Закройте просрочку и приходите в офис — подберём вариант.",
         "kk": "Ашық кешігумен несие берілмейді. Кешігуін жойып, офиске келіңіз.",
-    },
-    "damu_ip": {
-        "ru": "Беззалоговый DAMU для ИП нет. Для ИП — залоговый кредит до 40 млн. Для ТОО — DAMU 12,6% до 80 млн.",
-        "kk": "ЖК үшін кепілдіксіз DAMU жоқ. ЖК — кепілді несие 40 млнға дейін. ТОО — DAMU 12,6%.",
     },
     "thanks": {
         "ru": "Пожалуйста! Если появятся вопросы — пишите.",
@@ -155,7 +161,7 @@ def format_loan_offer(
     defaults = {
         "personal_credit": (18.0, 5),
         "business_credit": (23.0, 5),
-        "damu": (12.6, 3),
+        "damu": (12.6, 10),
         "mortgage_standard": (12.0, 20),
         "mortgage_gov": (7.0, 20),
         "refinancing": (18.0, 5),
@@ -223,6 +229,11 @@ def try_fast_response(
     amount = parse_amount_tenge(text) if business else None
     intent = detect_intent(text)
 
+    if business and is_damu_ip_question(norm):
+        ans = get_faq_answer("damu_ip", lang)
+        if ans:
+            return _attach_contacts(ans, lang, city, force=True)
+
     calc = wants_payment_calculation(text)
     if business and amount and intent:
         return _attach_contacts(
@@ -266,9 +277,11 @@ def try_fast_response(
     if best_faq and best_faq != "greeting":
         if best_faq in EXTRA_FAQ:
             ans = EXTRA_FAQ[best_faq].get(lang) or EXTRA_FAQ[best_faq]["ru"]
-            return _attach_contacts(ans, lang, city, force=best_faq in ("blacklist", "overdue", "damu_ip"))
+            return _attach_contacts(ans, lang, city, force=best_faq in ("blacklist", "overdue"))
         ans = get_faq_answer(best_faq, lang)
         if ans:
-            return _attach_contacts(ans, lang, city)
+            return _attach_contacts(
+                ans, lang, city, force=best_faq in ("blacklist", "overdue", "damu_ip")
+            )
 
     return None

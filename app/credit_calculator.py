@@ -104,7 +104,7 @@ def extract_amount_and_rate(text: str) -> Optional[Dict[str, float]]:
     if years_match:
         years = int(years_match.group(1))
     else:
-        years = 3  # Default
+        years = 10 if ("даму" in text.lower() or "damu" in text.lower()) else 5
     
     return {
         "amount": amount,

@@ -11,6 +11,11 @@ class TestTryFastResponse:
     def test_damu_product(self):
         r = try_fast_response("Расскажите про DAMU 12,6", "ru")
         assert r and "DAMU" in r
+        assert "10 лет" in r
+
+    def test_damu_ip_no_unsecured(self):
+        r = try_fast_response("даму для ип без залога", "ru")
+        assert r and "беззалогового" in r.lower()
 
     def test_greeting(self):
         r = try_fast_response("Привет", "ru")
