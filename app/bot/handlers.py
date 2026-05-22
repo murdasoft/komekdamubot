@@ -29,11 +29,7 @@ from app.bot.flows import (
     validate_phone, validate_number, validate_yes_no
 )
 from app.bot import content
-from app.bot.kazakh_dict import (
-    KK_CHARS as _KK_CHARS,
-    ALL_KK_WORDS as _ALL_KK_WORDS,
-    KK_PHRASES_EXTENDED as _KK_PHRASES,
-)
+from app.bot.lang_detect import detect_message_lang
 from app.supabase_client import save_session, load_session, log_message, create_lead
 
 logger = logging.getLogger(__name__)
@@ -444,81 +440,23 @@ async def _handle_ai_response(
     return response
 
 
-# Use massive Kazakh dictionary from kazakh_dict.py
-import re as _re
-_WORD_RE = _re.compile(r'[a-zа-яёәіңғүұқөһ]+', _re.IGNORECASE)
-
-
 def _detect_lang(text: str) -> str:
-    """
-    Ultimate Kazakh detector using massive dictionary (1000+ words/phrases).
-    1) Any Kazakh-specific character → kk
-    2) Any multi-word Kazakh phrase → kk  
-    3) Any whole word matching Kazakh dictionary → kk
-    4) Default → ru
-    """
-    if not text:
-        return "ru"
-    lower = text.lower()
+    return detect_message_lang(text)
 
-    # 1. Any Kazakh-specific letter — instant Kazakh
-    if any(c in _KK_CHARS for c in lower):
-        return "kk"
 
-    # 2. Multi-word phrases (substring match) - extended set
-    for phrase in _KK_PHRASES:
-        if phrase in lower:
-            return "kk"
-
-    # 3. Whole-word match using massive dictionary (1000+ words)
-    words = set(_WORD_RE.findall(lower))
-    if words & _ALL_KK_WORDS:
-        return "kk"
-
-    return "ru"
+_detect_language = _detect_lang  # alias for tests
 
 
 def _update_session_lang(text: str, session: Dict) -> str:
-    """
-    Sticky language with instant Kazakh switch.
-    - First message: set immediately.
-    - If Kazakh detected: switch IMMEDIATELY (detector is strict — no false positives).
-    - If Russian after Kazakh: only switch after 2 consecutive Russian messages.
-    """
-    detected = _detect_lang(text)
-    current_lang = session.get("lang")
-
-    if not current_lang:
-        session["lang"] = detected
-        session["lang_streak"] = 1
-        return detected
-
-    # Instant switch to Kazakh — detector is reliable
+    """kk только при явных признаках; русский текст → сразу ru."""
+    detected = detect_message_lang(text)
     if detected == "kk":
         session["lang"] = "kk"
-        session["lang_streak"] = 1
-        session.pop("lang_streak_candidate", None)
-        return "kk"
-
-    # If was Kazakh and now Russian detected — require 2 consecutive Russian
-    if current_lang == "kk" and detected == "ru":
-        streak = session.get("lang_streak", 1)
-        if session.get("lang_streak_candidate") == "ru":
-            streak += 1
-        else:
-            streak = 1
-        session["lang_streak_candidate"] = "ru"
-        session["lang_streak"] = streak
-        if streak >= 2:
-            session["lang"] = "ru"
-            session["lang_streak"] = 1
-            session.pop("lang_streak_candidate", None)
-            return "ru"
-        return "kk"
-
-    # Same Russian — keep
-    session["lang_streak"] = 1
-    return current_lang
+    else:
+        session["lang"] = "ru"
+    session.pop("lang_streak_candidate", None)
+    session.pop("lang_streak", None)
+    return session["lang"]
 
 
 async def _get_bot_reply(

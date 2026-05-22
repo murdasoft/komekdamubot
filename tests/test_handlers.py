@@ -14,7 +14,7 @@ class TestLanguageDetection:
         """Test detecting Kazakh by specific characters."""
         assert _detect_language("Сәлеметсіз бе") == "kk"
         assert _detect_language("Қазақ тілі") == "kk"
-        assert _detect_language(" nesie") == "kk"
+        assert _detect_language("несие керек") == "kk"  # kk word, not ambiguous alone
     
     def test_detect_kazakh_by_words(self):
         """Test detecting Kazakh by common words."""
