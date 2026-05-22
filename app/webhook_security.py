@@ -38,14 +38,17 @@ def verify_whatsapp_webhook(
         logger.warning("Missing authorization header")
         return False
     
-    # Green API sends Authorization: Bearer <token>
-    expected = f"Bearer {webhook_token}"
-    
-    if authorization_header != expected:
-        logger.warning(f"Invalid authorization header: {authorization_header[:20]}...")
-        return False
-    
-    return True
+    # Green API: по умолчанию Authorization: Bearer <token> (см. webhookUrlToken в консоли)
+    header = authorization_header.strip()
+    token = webhook_token.strip()
+    if header.lower().startswith("bearer "):
+        header = header[7:].strip()
+    elif header.lower().startswith("basic "):
+        header = header[6:].strip()
+    if header == token or authorization_header.strip() == f"Bearer {token}":
+        return True
+    logger.warning("Invalid authorization header: %s...", authorization_header[:24])
+    return False
 
 
 def sanitize_webhook_body(body: bytes) -> bytes:

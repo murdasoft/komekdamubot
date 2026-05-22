@@ -13,10 +13,11 @@ logger = logging.getLogger(__name__)
 
 
 class GreenApiClient:
-    def __init__(self, instance_id: str, token: str):
+    def __init__(self, instance_id: str, token: str, api_url: str = "https://7107.api.greenapi.com"):
         self.instance_id = instance_id
         self.token = token
-        self.base_url = f"https://api.green-api.com/waInstance{instance_id}"
+        root = api_url.rstrip("/")
+        self.base_url = f"{root}/waInstance{instance_id}"
 
     def _auth(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.token}"}

@@ -1147,10 +1147,24 @@ async def handle_whatsapp_update(
     text_stripped = text.strip()
     
     lang = session.get("lang", "ru")
-    
-    # Helper to send message with back hint
-    async def send_wa_with_hint(message: str):
-        await wa_client.send_message(chat_id, content.add_wa_back_hint(message, lang))
+
+    async def send_wa_with_hint(message: str, reply_lang: str | None = None):
+        use_lang = reply_lang or session.get("lang", lang)
+        await wa_client.send_message(chat_id, content.add_wa_back_hint(message, use_lang))
+
+    # Язык: 1 — KK, 2 — RU (как в Telegram)
+    if text_stripped in ["1", "2"] and session.get("state") == "selecting_lang":
+        session["lang"] = "kk" if text_stripped == "1" else "ru"
+        session["state"] = "idle"
+        await save_session(chat_id, session)
+        await send_wa_with_hint(content.get_wa_menu(session["lang"]), session["lang"])
+        return
+
+    if session.get("state") == "selecting_lang" and text_stripped not in ["1", "2"]:
+        session["lang"] = detect_message_lang(text_stripped)
+        session["state"] = "idle"
+        await save_session(chat_id, session)
+        lang = session["lang"]
     
     # Handle /start or menu commands
     if text_stripped in ["/start", "start", "меню", "мәзір", "menu"]:

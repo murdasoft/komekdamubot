@@ -24,6 +24,9 @@ class Settings:
     # WhatsApp (Green API)
     green_api_instance_id: str = field(default_factory=lambda: _getenv("GREEN_API_INSTANCE_ID"))
     green_api_token: str = field(default_factory=lambda: _getenv("GREEN_API_TOKEN"))
+    green_api_url: str = field(
+        default_factory=lambda: _getenv("GREEN_API_URL", "https://7107.api.greenapi.com").rstrip("/")
+    )
     green_api_webhook_token: str = field(default_factory=lambda: _getenv("GREEN_API_WEBHOOK_TOKEN", "changeme"))
     
     # Together AI (основной на Vercel)

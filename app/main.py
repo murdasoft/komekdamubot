@@ -46,6 +46,7 @@ async def ensure_clients() -> None:
         wa_client = GreenApiClient(
             instance_id=settings.green_api_instance_id,
             token=settings.green_api_token,
+            api_url=settings.green_api_url,
         )
     _clients_ready = True
     logger.info(
