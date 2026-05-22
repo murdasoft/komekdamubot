@@ -266,7 +266,8 @@ def _is_handoff_active(session: Dict) -> bool:
 async def _transcribe_voice(
     audio_bytes: bytes,
     ai: AIClient | None,
-    lang_hint: str | None = None
+    lang_hint: str | None = None,
+    filename: str = "voice.ogg",
 ) -> tuple[str | None, str]:
     """Transcribe voice: local faster-whisper first; Groq only if GROQ_ENABLED=true."""
     if not audio_bytes:
@@ -287,7 +288,7 @@ async def _transcribe_voice(
         if not ai:
             return None, None
         for lang in langs_to_try:
-            text, err = await ai.transcribe(audio_bytes, language=lang, filename="voice.ogg")
+            text, err = await ai.transcribe(audio_bytes, language=lang, filename=filename)
             if text:
                 return text, lang or ai.detect_language_simple(text)
             if err:
@@ -304,7 +305,7 @@ async def _transcribe_voice(
             stt_model=settings.groq_stt_model,
         )
         for lang in langs_to_try:
-            text, err = await groq.transcribe(audio_bytes, filename="voice.ogg", language=lang)
+            text, err = await groq.transcribe(audio_bytes, filename=filename, language=lang)
             if text:
                 return text, lang or groq.detect_language_simple(text)
             if err:
@@ -1106,51 +1107,101 @@ async def handle_whatsapp_update(
     ai: AIClient | None,
 ):
     """Handle WhatsApp (Green API) webhook update."""
-    from app.green_api import extract_green_info, is_voice_message
+    from app.green_api import (
+        extract_green_info,
+        get_audio_filename,
+        extract_media_download_url,
+        is_voice_message,
+    )
     import logging
     logger = logging.getLogger(__name__)
-    
+
     chat_id, text, sender_name, media_url = extract_green_info(body)
-    logger.info(f"handle_whatsapp_update: chat_id={chat_id}, text={text}, sender={sender_name}")
+    logger.info(
+        "handle_whatsapp_update: chat_id=%s text=%s voice=%s sender=%s",
+        chat_id,
+        (text or "")[:40],
+        is_voice_message(body),
+        sender_name,
+    )
     if not chat_id:
         logger.warning("No chat_id extracted from body")
         return
-    
+
     session = await _get_session(chat_id)
     session["platform"] = "whatsapp"
-    
+
     if sender_name:
         session["contact_name"] = sender_name
-    
-    # Handle voice message
-    if is_voice_message(body) and media_url:
-        settings = get_settings()
-        if settings.is_ai_configured and settings.is_whatsapp_configured:
-            # Download and transcribe
-            audio_bytes = await wa_client.download_file(media_url)
-            if audio_bytes:
-                transcribed, detected_lang = await _transcribe_voice(
-                    audio_bytes, ai, session.get("lang")
-                )
-                if transcribed:
-                    session["lang"] = detected_lang
-                    text = transcribed
-                    # Transcription used internally — not sent to client
-    
-    if not text:
-        return
-    
-    text_stripped = text.strip()
 
-    found_city = detect_city(text_stripped)
-    if found_city:
-        session["city"] = found_city
-    
     lang = session.get("lang", "ru")
 
     async def send_wa_with_hint(message: str, reply_lang: str | None = None):
         use_lang = reply_lang or session.get("lang", lang)
         await wa_client.send_message(chat_id, content.add_wa_back_hint(message, use_lang))
+
+    # Голосовое (audioMessage / voiceMessage)
+    if is_voice_message(body):
+        settings = get_settings()
+        lang_ui = session.get("lang", "ru")
+        if not settings.is_ai_configured:
+            await send_wa_with_hint(
+                "🎤 Дауыстық хабарлама уақытша жоқ. Мәтінмен жазыңыз."
+                if lang_ui == "kk"
+                else "🎤 Голосовые временно недоступны. Напишите текстом."
+            )
+            return
+
+        await send_wa_with_hint(
+            "🎤 Тыңдап жатырмын, секунду..."
+            if lang_ui == "kk"
+            else "🎤 Слушаю голосовое, секунду..."
+        )
+
+        id_message = body.get("idMessage", "")
+        media_url = media_url or extract_media_download_url(body)
+        audio_bytes = await wa_client.download_incoming_file(
+            chat_id, id_message, media_url
+        )
+        if not audio_bytes:
+            logger.error("WA voice download failed chat=%s msg=%s", chat_id, id_message)
+            await send_wa_with_hint(
+                "Файлды жүктей алмадым. Қайта жіберіңіз немесе мәтінмен жазыңыз."
+                if lang_ui == "kk"
+                else "Не удалось загрузить аудио. Отправьте ещё раз или напишите текстом."
+            )
+            return
+
+        fname = get_audio_filename(body)
+        transcribed, detected_lang = await _transcribe_voice(
+            audio_bytes, ai, session.get("lang"), filename=fname
+        )
+        if transcribed and transcribed.strip():
+            if any(c in _KK_CHARS for c in transcribed.lower()):
+                session["lang"] = "kk"
+            elif detected_lang in ("ru", "kk"):
+                session["lang"] = detected_lang
+            text = transcribed.strip()
+            await save_session(chat_id, session)
+            logger.info("WA voice OK chat=%s: %s", chat_id, text[:60])
+        else:
+            await send_wa_with_hint(
+                content.LANG_DETECT_FAILED_KK
+                if lang_ui == "kk"
+                else "Не расслышал. Повторите голосом или напишите текстом."
+            )
+            return
+
+    if not text:
+        return
+
+    text_stripped = text.strip()
+
+    found_city = detect_city(text_stripped)
+    if found_city:
+        session["city"] = found_city
+
+    lang = session.get("lang", "ru")
 
     # Язык: 1 — KK, 2 — RU (как в Telegram)
     if text_stripped in ["1", "2"] and session.get("state") == "selecting_lang":
