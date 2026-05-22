@@ -26,7 +26,18 @@ class Settings:
     green_api_token: str = field(default_factory=lambda: _getenv("GREEN_API_TOKEN"))
     green_api_webhook_token: str = field(default_factory=lambda: _getenv("GREEN_API_WEBHOOK_TOKEN", "changeme"))
     
-    # Groq AI
+    # Together AI (основной на Vercel)
+    together_api_key: str = field(default_factory=lambda: _getenv("TOGETHER_API_KEY"))
+    together_model: str = field(
+        default_factory=lambda: _getenv(
+            "TOGETHER_MODEL", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
+        )
+    )
+    together_stt_model: str = field(
+        default_factory=lambda: _getenv("TOGETHER_STT_MODEL", "openai/whisper-large-v3")
+    )
+
+    # Groq AI (резерв / STT)
     groq_api_key: str = field(default_factory=lambda: _getenv("GROQ_API_KEY"))
     groq_model: str = field(default_factory=lambda: _getenv("GROQ_MODEL", "llama-3.3-70b-versatile"))
     groq_stt_model: str = field(default_factory=lambda: _getenv("GROQ_STT_MODEL", "whisper-large-v3"))
@@ -94,16 +105,24 @@ class Settings:
         return bool(self.groq_api_key)
 
     @property
+    def is_together_configured(self) -> bool:
+        return bool(self.together_api_key)
+
+    @property
     def effective_ai_provider(self) -> str:
         provider = (self.ai_provider or "").lower()
+        if provider == "together" and self.is_together_configured:
+            return "together"
         if provider == "local" and self.is_local_ai_configured:
             return "local"
-        if provider == "groq" or (not provider and self.is_groq_configured):
+        if provider == "groq" and self.is_groq_configured:
+            return "groq"
+        if self.is_together_configured:
+            return "together"
+        if self.is_groq_configured:
             return "groq"
         if self.is_local_ai_configured:
             return "local"
-        if self.is_groq_configured:
-            return "groq"
         return provider or "none"
 
     @property
@@ -112,9 +131,12 @@ class Settings:
 
     @property
     def is_ai_configured(self) -> bool:
-        if self.effective_ai_provider == "local":
+        p = self.effective_ai_provider
+        if p == "together":
+            return self.is_together_configured
+        if p == "local":
             return self.is_local_ai_configured
-        if self.effective_ai_provider == "groq":
+        if p == "groq":
             return self.is_groq_configured
         return False
     

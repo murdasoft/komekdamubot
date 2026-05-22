@@ -1,4 +1,4 @@
-"""AI client factory: local Ollama/Whisper or Groq."""
+"""AI client factory: Together, Groq, or local Ollama."""
 
 from __future__ import annotations
 
@@ -6,15 +6,24 @@ from typing import TYPE_CHECKING, Union
 
 from app.groq_client import GroqClient
 from app.local_ai_client import LocalAIClient
+from app.together_client import TogetherClient
 
 if TYPE_CHECKING:
     from app.config import Settings
 
-AIClient = Union[GroqClient, LocalAIClient]
+AIClient = Union[TogetherClient, GroqClient, LocalAIClient]
 
 
 def create_ai_client(settings: "Settings") -> AIClient | None:
-    if settings.effective_ai_provider == "local" and settings.local_llm_base_url:
+    provider = settings.effective_ai_provider
+
+    if provider == "together" and settings.is_together_configured:
+        return TogetherClient(
+            api_key=settings.together_api_key,
+            model=settings.together_model,
+            stt_model=settings.together_stt_model,
+        )
+    if provider == "local" and settings.local_llm_base_url:
         if not settings.local_whisper_url:
             raise ValueError("LOCAL_WHISPER_URL is required when AI_PROVIDER=local")
         return LocalAIClient(

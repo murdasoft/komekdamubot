@@ -84,20 +84,13 @@ def get_unknown_message_with_phone(lang: str, city: str | None = None) -> str:
 
 def get_ai_fallback_message(lang: str, city: str | None = None) -> str:
     """Used when AI service fails — invite to office with phone."""
-    phone = get_city_phone(city)
+    from app.offices import get_contact_footer
+
     if lang == "kk":
-        return (
-            "Сізге арнап ең қолайлы шарттарды табамыз. "
-            "Толық кеңес алу үшін офиске келіңіз немесе қоңырау шалыңыз.\n\n"
-            f"📞 {phone}\n"
-            "Негізгі мәзір үшін /start"
-        )
-    return (
-        "Подберём для вас оптимальные условия. "
-        "Для подробной консультации приглашаем в офис или позвоните нам.\n\n"
-        f"📞 {phone}\n"
-        "Главное меню — /start"
-    )
+        lead = "Қазір жүйе бос емес. Толық кеңес — офисте немесе телефон:"
+    else:
+        lead = "Сейчас не могу ответить онлайн. Точная консультация — в офисе или по телефону:"
+    return f"{lead}\n\n{get_contact_footer(city, lang, all_cities=not bool(city))}\n\n/start"
 
 
 UNKNOWN_RU = get_unknown_message_with_phone("ru")

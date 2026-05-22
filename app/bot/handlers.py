@@ -13,7 +13,10 @@ from collections import defaultdict
 
 from app.config import get_settings
 from app.ai_client import AIClient
-from app.groq_client import get_system_prompt, detect_city
+from app.prompts import get_system_prompt
+from app.offices import detect_city
+from app.bot.text_utils import is_pure_greeting, strip_leading_greeting
+from app.bot.response_builder import finalize_bot_response
 from app.gemini_client import GeminiClient, get_gemini_client
 from app.bot.faq_matcher import try_fast_response
 from app.bot.loan_calc import calculate_loan_payment, format_calculator_result
@@ -92,6 +95,8 @@ def detect_small_talk_intent(text: str) -> str | None:
         return None
 
     if _has_business_content(text_lower):
+        return None
+    if not is_pure_greeting(text):
         return None
 
     # «пока ещё не знаю» — не прощание; только явное «пока» в конце или отдельной фразой
@@ -279,7 +284,10 @@ async def _transcribe_voice(
             langs_to_try.append(lang)
 
     settings = get_settings()
-    groq_first = settings.groq_enabled and settings.is_groq_configured
+    groq_first = (
+        settings.effective_ai_provider == "groq"
+        or (settings.groq_enabled and settings.is_groq_configured)
+    ) and settings.effective_ai_provider != "together"
 
     async def _try_local() -> tuple[str | None, str | None]:
         if not ai:
@@ -518,15 +526,19 @@ async def _get_bot_reply(
     session: Dict,
     ai: AIClient | None,
 ) -> str | None:
-    """Сначала FAQ без LLM, иначе Ollama/Groq."""
+    """FAQ без LLM, иначе Together/Groq."""
     settings = get_settings()
     lang = _update_session_lang(text, session)
+    core = strip_leading_greeting(text)
     if settings.fast_faq_enabled:
-        fast = try_fast_response(text, lang)
+        fast = try_fast_response(core, lang, session.get("city"))
         if fast:
-            logger.info("Fast FAQ hit for: %s", text[:40])
+            logger.info("Fast FAQ hit for: %s", core[:40])
             return fast
-    return await _handle_ai_response_with_context(text, session, ai)
+    raw = await _handle_ai_response_with_context(text, session, ai)
+    if not raw:
+        return None
+    return finalize_bot_response(raw, text, lang, session.get("city"))
 
 
 async def _handle_ai_response_with_context(
@@ -574,11 +586,14 @@ async def _handle_ai_response_with_context(
     from app.groq_client import GroqClient
     response, err = None, None
     max_tok = settings.local_llm_max_tokens
-    use_groq = settings.effective_ai_provider == "groq" or (
-        settings.groq_enabled and settings.is_groq_configured
+    provider = settings.effective_ai_provider
+    use_groq = provider == "groq" or (
+        settings.groq_enabled and settings.is_groq_configured and provider != "together"
     )
 
-    if use_groq and settings.is_groq_configured:
+    if provider == "together" and ai:
+        response, err = await ai.chat(messages, temperature=0.5, max_tokens=max_tok)
+    elif use_groq and settings.is_groq_configured:
         groq = GroqClient(settings.groq_api_key, settings.groq_model, settings.groq_stt_model)
         response, err = await groq.chat(messages, temperature=0.6, max_tokens=max_tok)
     elif ai:

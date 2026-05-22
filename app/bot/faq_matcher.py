@@ -9,12 +9,9 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from app.bot.knowledge_base import (
-    PRODUCTS,
-    detect_intent,
-    get_faq_answer,
-    get_product_info,
-)
+from app.bot.knowledge_base import PRODUCTS, detect_intent, get_faq_answer, get_product_info
+from app.bot.text_utils import is_pure_greeting, strip_leading_greeting
+from app.offices import get_contact_footer, detect_city
 
 _WORD = re.compile(r"[\wа-яёәіңғүұқөһ]+", re.IGNORECASE)
 
@@ -50,19 +47,34 @@ FAQ_PATTERNS: list[_Pattern] = [
     _Pattern(("здравствуй", "добрый день", "добрый вечер", "привет", "салем", "сәлем", "салам"), faq_key="greeting", weight=2),
     _Pattern(("спасибо", "рахмет", "thanks"), faq_key="thanks", weight=2),
     _Pattern(("оператор", "менеджер", "человек", "маман", "связаться с"), faq_key="operator_hint", weight=2),
+    _Pattern(("чёрный список", "черный список", "черном списке", "қара тізім"), faq_key="blacklist", weight=4),
+    _Pattern(("просрочк", "кешігу", "задолжал"), faq_key="overdue", weight=4),
+    _Pattern(("ип без залог", "ип залог", "даму ип", "жк даму"), faq_key="damu_ip", weight=3),
 ]
 
 # Доп. ответы (не в knowledge_base FAQ_ANSWERS)
 EXTRA_FAQ = {
     "greeting": {
         "ru": (
-            "Здравствуйте! Я помощник KOMEK DAMU — кредиты, ипотека, DAMU 12,6%, рефинансирование.\n"
-            "Напишите, что вас интересует, или выберите пункт в меню."
+            "Здравствуйте! KOMEK DAMU — кредиты, ипотека, DAMU 12,6%, рефинансирование.\n"
+            "Напишите сумму и цель (например: «кредит 1 млн») или /start."
         ),
         "kk": (
-            "Сәлеметсіз бе! Мен KOMEK DAMU көмекшісімін — несие, ипотека, DAMU 12,6%.\n"
-            "Қызығушылығыңызды жазыңыз немесе мәзірден таңдаңыз."
+            "Сәлеметсіз бе! KOMEK DAMU — несие, ипотека, DAMU 12,6%.\n"
+            "Сома мен мақсатыңызды жазыңыз немесе /start."
         ),
+    },
+    "blacklist": {
+        "ru": "Чёрного списка нет. Портится кредитная история — это можно улучшить. Нужна консультация в офисе.",
+        "kk": "Қара тізім жоқ. Несие тарихы бұзылуы мүмкін — жөнделеді. Офисте кеңес керек.",
+    },
+    "overdue": {
+        "ru": "С открытыми просрочками кредит не одобряем. Закройте просрочку и приходите в офис — подберём вариант.",
+        "kk": "Ашық кешігумен несие берілмейді. Кешігуін жойып, офиске келіңіз.",
+    },
+    "damu_ip": {
+        "ru": "Беззалоговый DAMU для ИП нет. Для ИП — залоговый кредит до 40 млн. Для ТОО — DAMU 12,6% до 80 млн.",
+        "kk": "ЖК үшін кепілдіксіз DAMU жоқ. ЖК — кепілді несие 40 млнға дейін. ТОО — DAMU 12,6%.",
     },
     "thanks": {
         "ru": "Пожалуйста! Если появятся вопросы — пишите.",
@@ -181,7 +193,15 @@ def format_product_card(product_key: str, lang: str) -> str:
     )
 
 
-def try_fast_response(text: str, lang: str = "ru") -> Optional[str]:
+def _attach_contacts(answer: str, lang: str, city: str | None, force: bool = False) -> str:
+    if force or "8 7" not in answer:
+        return f"{answer}\n\n{get_contact_footer(city, lang, all_cities=not bool(city))}"
+    return answer
+
+
+def try_fast_response(
+    text: str, lang: str = "ru", session_city: str | None = None
+) -> Optional[str]:
     """
     Подбор готового ответа по ключевым словам и продуктам.
     Возвращает текст или None (тогда вызываем LLM).
@@ -189,7 +209,12 @@ def try_fast_response(text: str, lang: str = "ru") -> Optional[str]:
     if not text or len(text.strip()) < 2:
         return None
 
-    norm = _normalize(text)
+    if is_pure_greeting(text):
+        g = EXTRA_FAQ["greeting"].get(lang) or EXTRA_FAQ["greeting"]["ru"]
+        return _attach_contacts(g, lang, session_city)
+
+    norm = _normalize(strip_leading_greeting(text))
+    city = session_city or detect_city(text)
     if len(norm) > 500:
         return None
 
@@ -198,12 +223,12 @@ def try_fast_response(text: str, lang: str = "ru") -> Optional[str]:
     intent = detect_intent(text)
 
     if business and amount and intent:
-        return format_loan_offer(intent, amount, lang)
+        return _attach_contacts(format_loan_offer(intent, amount, lang), lang, city)
     if business and amount and ("кредит" in norm or "несие" in norm):
         key = intent or "personal_credit"
-        return format_loan_offer(key, amount, lang)
+        return _attach_contacts(format_loan_offer(key, amount, lang), lang, city)
     if business and intent:
-        return format_product_card(intent, lang)
+        return _attach_contacts(format_product_card(intent, lang), lang, city)
 
     best_score = 0
     best_faq: str | None = None
@@ -227,14 +252,15 @@ def try_fast_response(text: str, lang: str = "ru") -> Optional[str]:
 
     if best_product:
         if amount:
-            return format_loan_offer(best_product, amount, lang)
-        return format_product_card(best_product, lang)
+            return _attach_contacts(format_loan_offer(best_product, amount, lang), lang, city)
+        return _attach_contacts(format_product_card(best_product, lang), lang, city)
 
     if best_faq and best_faq != "greeting":
         if best_faq in EXTRA_FAQ:
-            return EXTRA_FAQ[best_faq].get(lang) or EXTRA_FAQ[best_faq]["ru"]
+            ans = EXTRA_FAQ[best_faq].get(lang) or EXTRA_FAQ[best_faq]["ru"]
+            return _attach_contacts(ans, lang, city, force=best_faq in ("blacklist", "overdue", "damu_ip"))
         ans = get_faq_answer(best_faq, lang)
         if ans:
-            return ans
+            return _attach_contacts(ans, lang, city)
 
     return None
