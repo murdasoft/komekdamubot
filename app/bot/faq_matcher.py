@@ -143,17 +143,9 @@ def format_loan_offer(
 
     amount_str = f"{amount:,}".replace(",", " ")
     if lang == "kk":
-        body = (
-            f"*{info['name']}* — {amount_str} ₸.\n"
-            "Өтініш үшін «иә» жазыңыз.\n"
-            "Қай қаладасыз?"
-        )
+        body = f"*{info['name']}* — {amount_str} ₸.\nҚай қаладасыз?"
     else:
-        body = (
-            f"*{info['name']}* — сумма {amount_str} ₸.\n"
-            "Для заявки напишите «да».\n"
-            "Из какого вы города?"
-        )
+        body = f"*{info['name']}* — сумма {amount_str} ₸.\nИз какого вы города?"
 
     if not with_calc:
         return body
@@ -189,14 +181,8 @@ def format_product_card(product_key: str, lang: str) -> str:
     if not info:
         return ""
     if lang == "kk":
-        return (
-            f"*{info['name']}* — {info['description']}\n"
-            "Өтініш: «иә» немесе /start."
-        )
-    return (
-        f"*{info['name']}* — {info['description']}\n"
-        "Заявка: «да» или /start."
-    )
+        return f"*{info['name']}* — {info['description']}"
+    return f"*{info['name']}* — {info['description']}"
 
 
 def _attach_contacts(answer: str, lang: str, city: str | None, force: bool = False) -> str:

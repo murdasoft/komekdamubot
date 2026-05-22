@@ -26,7 +26,7 @@ class TestTryFastResponse:
     def test_product_card_format(self):
         card = format_product_card("personal_credit", "ru")
         assert "Кредит" in card
-        assert "да" in card.lower()
+        assert "/start" not in card
 
     def test_loan_request_short_no_calc(self):
         r = try_fast_response("здравствуйте взять хочу кредит на 1 000 000", "ru")
