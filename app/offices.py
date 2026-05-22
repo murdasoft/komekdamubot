@@ -31,6 +31,9 @@ OFFICES_FALLBACK = {
     },
 }
 
+# Порядок вывода всех офисов в ответе
+CITY_ORDER = ("almaty", "astana", "shymkent", "atyrau", "aktau")
+
 CITY_KEYWORDS = {
     "almaty": ["алматы", "алма-ата", "almaty"],
     "astana": ["астана", "нур-султан", "нурсултан", "astana"],
@@ -74,18 +77,38 @@ def _load_from_supabase() -> dict:
 
 
 def get_offices_data() -> dict:
+    """Все 5 городов: fallback + данные Supabase (дополняют, не заменяют)."""
     global _cache
     if _cache is None:
+        merged = {k: dict(v) for k, v in OFFICES_FALLBACK.items()}
         db = _load_from_supabase()
-        _cache = db if db else OFFICES_FALLBACK
+        for key, val in db.items():
+            ru = (val.get("ru") or "").strip()
+            kk = (val.get("kk") or "").strip()
+            if ru or kk:
+                merged[key] = {
+                    "ru": ru or merged.get(key, {}).get("ru", ""),
+                    "kk": kk or merged.get(key, {}).get("ru", ""),
+                }
+        _cache = merged
     return _cache
+
+
+def clear_offices_cache() -> None:
+    """Сброс кэша (тесты / после обновления offices в Supabase)."""
+    global _cache
+    _cache = None
 
 
 def get_office_block(city: str | None, lang: str) -> str:
     offices = get_offices_data()
     if city and city in offices:
         return offices[city].get(lang, offices[city]["ru"])
-    lines = [offices[c].get(lang, offices[c]["ru"]) for c in offices if c in offices]
+    lines = [
+        offices[c].get(lang, offices[c].get("ru", ""))
+        for c in CITY_ORDER
+        if c in offices and offices[c].get(lang, offices[c].get("ru"))
+    ]
     return "\n\n".join(lines) if lines else OFFICES_FALLBACK["almaty"][lang]
 
 

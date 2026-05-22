@@ -44,9 +44,11 @@ def finalize_bot_response(
         clean = f"{clean}\n\n{footer}"
 
     notify = "[NOTIFY_MANAGER]" in text
-    lines = [ln.strip() for ln in clean.split("\n") if ln.strip()]
-    if len(lines) > 6:
-        clean = "\n".join(lines[:6]) + "\n…"
+    # Не обрезаем ответ, если уже есть контакты нескольких городов
+    if clean.count("📍") < 3:
+        lines = [ln.strip() for ln in clean.split("\n") if ln.strip()]
+        if len(lines) > 8:
+            clean = "\n".join(lines[:8]) + "\n…"
 
     out = clean
     if notify:
