@@ -41,7 +41,7 @@ def test_detect_city_from_message():
 
 
 def test_attach_contacts_one_city_only():
-    ans = _attach_contacts("Жауап", "kk", "shymkent")
+    ans = _attach_contacts("Жауап", "kk", "shymkent", platform="telegram")
     assert ans.count("📍") == 1
     assert "Шымкент" in ans
     assert "Астана" not in ans

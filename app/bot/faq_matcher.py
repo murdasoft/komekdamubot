@@ -154,11 +154,11 @@ def format_loan_offer(
 
     amount_str = f"{amount:,}".replace(",", " ")
     if city:
-        body = f"*{info['name']}* — {amount_str} ₸."
+        body = f"📋 *{info['name']}*\n💰 {amount_str} ₸"
     elif lang == "kk":
-        body = f"*{info['name']}* — {amount_str} ₸.\nҚай қаладасыз?"
+        body = f"📋 *{info['name']}*\n💰 {amount_str} ₸\n\n❓ Қай қаладасыз?"
     else:
-        body = f"*{info['name']}* — сумма {amount_str} ₸.\nИз какого вы города?"
+        body = f"📋 *{info['name']}*\n💰 {amount_str} ₸\n\n❓ Из какого вы города?"
 
     if not with_calc:
         return body
@@ -193,9 +193,7 @@ def format_product_card(product_key: str, lang: str) -> str:
     info = get_product_info(product_key, lang)
     if not info:
         return ""
-    if lang == "kk":
-        return f"*{info['name']}* — {info['description']}"
-    return f"*{info['name']}* — {info['description']}"
+    return f"📋 *{info['name']}*\n{info['description']}"
 
 
 def _attach_contacts(
@@ -204,14 +202,15 @@ def _attach_contacts(
     city: str | None,
     *,
     force_all_cities: bool = False,
+    platform: str = "telegram",
 ) -> str:
     """Контакты: один город, если назван; иначе все 5 или вопрос про город."""
     if "8 7" in answer and not force_all_cities:
         return answer
     if city:
-        return f"{answer}\n\n{get_contact_footer(city, lang, all_cities=False)}"
+        return f"{answer}\n\n{get_contact_footer(city, lang, all_cities=False, platform=platform)}"  # type: ignore[arg-type]
     if force_all_cities:
-        return f"{answer}\n\n{get_contact_footer(None, lang, all_cities=True)}"
+        return f"{answer}\n\n{get_contact_footer(None, lang, all_cities=True, platform=platform)}"  # type: ignore[arg-type]
     if lang == "kk" and "қала" not in answer.lower():
         return f"{answer}\n\nҚай қаладасыз? Офис пен телефон жібереміз."
     if lang != "kk" and "город" not in answer.lower():
@@ -220,7 +219,10 @@ def _attach_contacts(
 
 
 def try_fast_response(
-    text: str, lang: str = "ru", session_city: str | None = None
+    text: str,
+    lang: str = "ru",
+    session_city: str | None = None,
+    platform: str = "telegram",
 ) -> Optional[str]:
     """
     Подбор готового ответа по ключевым словам и продуктам.
@@ -231,7 +233,7 @@ def try_fast_response(
 
     if is_pure_greeting(text):
         g = EXTRA_FAQ["greeting"].get(lang) or EXTRA_FAQ["greeting"]["ru"]
-        return _attach_contacts(g, lang, session_city)
+        return _attach_contacts(g, lang, session_city, platform=platform)
 
     norm = _normalize(strip_leading_greeting(text))
     city = resolve_city(text, session_city)
@@ -246,7 +248,7 @@ def try_fast_response(
         ans = get_faq_answer("damu_ip", lang)
         if ans:
             return _attach_contacts(
-                ans, lang, city, force_all_cities=not bool(city)
+                ans, lang, city, force_all_cities=not bool(city), platform=platform
             )
 
     calc = wants_payment_calculation(text)
@@ -255,6 +257,7 @@ def try_fast_response(
             format_loan_offer(intent, amount, lang, with_calc=calc, city=city),
             lang,
             city,
+            platform=platform,
         )
     if business and amount and ("кредит" in norm or "несие" in norm):
         key = intent or "personal_credit"
@@ -262,9 +265,10 @@ def try_fast_response(
             format_loan_offer(key, amount, lang, with_calc=calc, city=city),
             lang,
             city,
+            platform=platform,
         )
     if business and intent:
-        return _attach_contacts(format_product_card(intent, lang), lang, city)
+        return _attach_contacts(format_product_card(intent, lang), lang, city, platform=platform)
 
     best_score = 0
     best_faq: str | None = None
@@ -294,19 +298,20 @@ def try_fast_response(
                 ),
                 lang,
                 city,
+                platform=platform,
             )
-        return _attach_contacts(format_product_card(best_product, lang), lang, city)
+        return _attach_contacts(format_product_card(best_product, lang), lang, city, platform=platform)
 
     if best_faq and best_faq != "greeting":
         if best_faq in EXTRA_FAQ:
             ans = EXTRA_FAQ[best_faq].get(lang) or EXTRA_FAQ[best_faq]["ru"]
             need_all = best_faq in ("blacklist", "overdue", "address") and not city
             return _attach_contacts(
-                ans, lang, city, force_all_cities=need_all
+                ans, lang, city, force_all_cities=need_all, platform=platform
             )
         ans = get_faq_answer(best_faq, lang)
         if ans:
             need_all = best_faq in ("blacklist", "overdue", "damu_ip", "address") and not city
-            return _attach_contacts(ans, lang, city, force_all_cities=need_all)
+            return _attach_contacts(ans, lang, city, force_all_cities=need_all, platform=platform)
 
     return None

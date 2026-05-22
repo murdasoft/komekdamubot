@@ -65,11 +65,24 @@ OPERATOR_RU = "Передаю диалог менеджеру. Совсем ск
 OPERATOR_KK = "Диалогты менеджерге беремін. Жақын арада сізбен адам байланысады."
 
 
-def get_operator_message_with_phone(lang: str, city: str | None = None) -> str:
+def get_operator_message_with_phone(
+    lang: str, city: str | None = None, platform: str = "telegram"
+) -> str:
+    from app.bot.formatting import mono
+
     phone = get_city_phone(city)
+    p = mono(phone, platform)  # type: ignore[arg-type]
     if lang == "kk":
-        return f"Диалогты менеджерге беремін. Жақын арада сізбен адам байланысады.\nТездету үшін қоңырау шалыңыз: {phone}"
-    return f"Передаю диалог менеджеру. Совсем скоро с вами свяжется человек.\nЕсли срочно — позвоните: {phone}"
+        return (
+            f"👨‍💼 *Менеджерге қосылдым.*\n"
+            f"Жақын арада хабарласады.\n\n"
+            f"📞 Тездету: {p}"
+        )
+    return (
+        f"👨‍💼 *Передаю менеджеру.*\n"
+        f"Скоро с вами свяжутся.\n\n"
+        f"📞 Срочно: {p}"
+    )
 
 HANDOFF_RELEASED_RU = "Возвращаю бота в диалог. Напишите /start для главного меню."
 HANDOFF_RELEASED_KK = "Ботты диалогқа қайтарып аламын. Негізгі мәзір үшін /start жазыңыз."
@@ -82,15 +95,20 @@ def get_unknown_message_with_phone(lang: str, city: str | None = None) -> str:
     return (f"Извините, не совсем понял ваш запрос.\n\nВы можете:\n• Позвонить: {phone}\n• Написать /start для возврата в меню")
 
 
-def get_ai_fallback_message(lang: str, city: str | None = None) -> str:
+def get_ai_fallback_message(
+    lang: str, city: str | None = None, platform: str = "telegram"
+) -> str:
     """Used when AI service fails — invite to office with phone."""
     from app.offices import get_contact_footer
 
     if lang == "kk":
-        lead = "Қазір жүйе бос емес. Толық кеңес — офисте немесе телефон:"
+        lead = "⚠️ *Қазір жүйе бос емес.*\nТолық кеңес — офисте:"
     else:
-        lead = "Сейчас не могу ответить онлайн. Точная консультация — в офисе или по телефону:"
-    return f"{lead}\n\n{get_contact_footer(city, lang, all_cities=not bool(city))}\n\n/start"
+        lead = "⚠️ *Сейчас не могу ответить онлайн.*\nКонсультация в офисе:"
+    footer = get_contact_footer(
+        city, lang, all_cities=not bool(city), platform=platform  # type: ignore[arg-type]
+    )
+    return f"{lead}\n\n{footer}\n\n/start"
 
 
 UNKNOWN_RU = get_unknown_message_with_phone("ru")
@@ -258,8 +276,10 @@ def get_language_keyboard() -> dict:
     return LANGUAGE_KEYBOARD
 
 
-def get_greeting(lang: str = "ru") -> str:
-    return GREETING_RU if lang == "ru" else GREETING_KK
+def get_greeting(lang: str = "ru", platform: str = "telegram") -> str:
+    from app.bot.formatting import format_welcome
+
+    return format_welcome(lang, platform)  # type: ignore[arg-type]
 
 
 def get_wa_intro(lang: str = "ru") -> str:

@@ -35,6 +35,10 @@ class TelegramClient:
         parse_mode: str = "Markdown",
         reply_markup: dict | None = None,
     ) -> dict[str, Any] | None:
+        if parse_mode:
+            from app.bot.formatting import sanitize_for_telegram
+
+            text = sanitize_for_telegram(text)
         payload: dict[str, Any] = {
             "chat_id": chat_id,
             "text": text,

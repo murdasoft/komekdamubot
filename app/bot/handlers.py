@@ -470,14 +470,17 @@ async def _get_bot_reply(
         session["city"] = found_city
     core = strip_leading_greeting(text)
     if settings.fast_faq_enabled:
-        fast = try_fast_response(core, lang, session.get("city"))
+        platform = session.get("platform", "telegram")
+        fast = try_fast_response(core, lang, session.get("city"), platform)
         if fast:
             logger.info("Fast FAQ hit for: %s", core[:40])
             return fast
     raw = await _handle_ai_response_with_context(text, session, ai)
     if not raw:
         return None
-    return finalize_bot_response(raw, text, lang, session.get("city"))
+    return finalize_bot_response(
+        raw, text, lang, session.get("city"), session.get("platform", "telegram")
+    )
 
 
 async def _handle_ai_response_with_context(
@@ -807,19 +810,9 @@ async def handle_telegram_update(
             session["state"] = "idle"
             await save_session(chat_id, session)
             
-            if selected_lang == "kk":
-                greeting = (
-                    "Сәлеметсіз бе! Мен KOMEK DAMU кеңесшісімін 👋\n\n"
-                    "Несие, ипотека, бизнес қаржыландыру бойынша сұрақтарыңызды қойыңыз — жауап беремін.\n\n"
-                    "📋 Қызметтер тізімі: /menu"
-                )
-            else:
-                greeting = (
-                    "Здравствуйте! Я консультант KOMEK DAMU 👋\n\n"
-                    "Задавайте вопросы по кредитам, ипотеке, бизнес-финансированию — отвечу.\n\n"
-                    "📋 Список услуг: /menu"
-                )
-            await tg_client.send_message(chat_id, greeting)
+            await tg_client.send_message(
+                chat_id, content.get_greeting(selected_lang, "telegram")
+            )
             return
 
     # После /start можно сразу писать вопрос — не обязательно жать 1 или 2
@@ -998,7 +991,7 @@ async def handle_telegram_update(
     menu_keywords = ["меню", "menu", "мәзір", "список", "варианты", "нұсқалар", "/menu"]
     if any(w in text_stripped.lower() for w in menu_keywords) and session.get("state") == "idle":
         lang = session.get("lang", "ru")
-        await tg_client.send_message(chat_id, content.get_greeting(lang))
+        await tg_client.send_message(chat_id, content.get_greeting(lang, "telegram"))
         return
 
     # Log message to database
@@ -1069,7 +1062,7 @@ async def handle_telegram_update(
             return
         
         elif text_stripped == "menu:main":
-            await tg_client.send_message(chat_id, content.get_greeting(lang))
+            await tg_client.send_message(chat_id, content.get_greeting(lang, "telegram"))
             return
         
         elif text_stripped == "action:operator":
@@ -1164,7 +1157,10 @@ async def handle_whatsapp_update(
         session["lang"] = "kk" if text_stripped == "1" else "ru"
         session["state"] = "idle"
         await save_session(chat_id, session)
-        await send_wa_with_hint(content.get_wa_menu(session["lang"]), session["lang"])
+        sl = session["lang"]
+        await send_wa_with_hint(
+            content.get_greeting(sl, "whatsapp") + "\n\n" + content.get_wa_menu(sl), sl
+        )
         return
 
     if session.get("state") == "selecting_lang" and text_stripped not in ["1", "2"]:
@@ -1177,13 +1173,17 @@ async def handle_whatsapp_update(
     if text_stripped in ["/start", "start", "меню", "мәзір", "menu"]:
         _reset_session(chat_id, "whatsapp")
         session["lang"] = lang
-        await send_wa_with_hint(content.get_wa_menu(lang))
+        await send_wa_with_hint(
+            content.get_greeting(lang, "whatsapp") + "\n\n" + content.get_wa_menu(lang), lang
+        )
         return
     
     # Handle 0 to return to main menu (check BEFORE flow)
     if text_stripped == "0":
         _reset_session(chat_id, "whatsapp")
-        await send_wa_with_hint(content.get_wa_menu(lang))
+        await send_wa_with_hint(
+            content.get_greeting(lang, "whatsapp") + "\n\n" + content.get_wa_menu(lang), lang
+        )
         return
     
     # Handle 99 for language selection
@@ -1203,7 +1203,11 @@ async def handle_whatsapp_update(
     if any(word in text_stripped.lower() for word in ["оператор", "менеджер", "человек", "маман", "7"]):
         session["state"] = "handoff"
         session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
-        await send_wa_with_hint(content.get_operator_message_with_phone(lang, session.get("city")))
+        await send_wa_with_hint(
+            content.get_operator_message_with_phone(
+                lang, session.get("city"), "whatsapp"
+            )
+        )
         await _notify_manager(
             f"🚨 *Запрос оператора (WhatsApp)*\nPhone: `{chat_id}`\nСообщение: {text_stripped}",
             chat_id,
@@ -1238,7 +1242,11 @@ async def handle_whatsapp_update(
         elif mapped == "operator":
             session["state"] = "handoff"
             session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
-            await send_wa_with_hint(content.get_operator_message_with_phone(lang, session.get("city")))
+            await send_wa_with_hint(
+            content.get_operator_message_with_phone(
+                lang, session.get("city"), "whatsapp"
+            )
+        )
             return
         elif mapped:
             await _start_product_flow(
@@ -1299,5 +1307,7 @@ async def handle_whatsapp_update(
                 chat_id, "whatsapp", session=session
             )
     else:
-        await send_wa_with_hint(content.get_ai_fallback_message(lang, session.get("city")))
+        await send_wa_with_hint(
+            content.get_ai_fallback_message(lang, session.get("city"), "whatsapp")
+        )
     await save_session(chat_id, session)

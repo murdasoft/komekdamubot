@@ -1,38 +1,27 @@
-"""Офисы KOMEK DAMU — Supabase + fallback."""
+"""Офисы KOMEK DAMU — Supabase + форматирование."""
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
+
+from app.bot.formatting import (
+    CITY_OFFICES,
+    CITY_ORDER,
+    format_contact_footer,
+    format_office_city,
+    Platform,
+)
 
 logger = logging.getLogger(__name__)
 
-# Fallback если Supabase недоступен
+# Для обратной совместимости
 OFFICES_FALLBACK = {
-    "almaty": {
-        "ru": "📍 Алматы, ул. Муратбаева 134, каб. 311\n📞 8 707 339 10 39 | WhatsApp: 7 707 339 10 39",
-        "kk": "📍 Алматы, Муратбаева 134, 311 каб\n📞 8 707 339 10 39 | WhatsApp: 7 707 339 10 39",
-    },
-    "astana": {
-        "ru": "📍 Астана, ул. Сыганак 47, каб. 433\n📞 8 702 187 97 26 | WhatsApp: 7 702 187 97 26",
-        "kk": "📍 Астана, Сығанақ 47, 433 каб\n📞 8 702 187 97 26 | WhatsApp: 7 702 187 97 26",
-    },
-    "shymkent": {
-        "ru": "📍 Шымкент, ул. Мадели Кожа 45, каб. 7\n📞 8 705 810 28 81 | WhatsApp: 7 705 810 28 81",
-        "kk": "📍 Шымкент, Мадели Кожа 45, 7 каб\n📞 8 705 810 28 81 | WhatsApp: 7 705 810 28 81",
-    },
-    "atyrau": {
-        "ru": "📍 Атырау, ул. Досмухамедова 139а, каб. 9\n📞 8 706 686 83 00 | WhatsApp: 7 706 686 83 00",
-        "kk": "📍 Атырау, Досмухамедова 139а, 9 каб\n📞 8 706 686 83 00 | WhatsApp: 7 706 686 83 00",
-    },
-    "aktau": {
-        "ru": "📍 Актау\n📞 8 705 112 99 22 | WhatsApp: 7 705 112 99 22",
-        "kk": "📍 Ақтау\n📞 8 705 112 99 22 | WhatsApp: 7 705 112 99 22",
-    },
+    key: {
+        "ru": format_office_city(key, "ru", "telegram"),
+        "kk": format_office_city(key, "kk", "telegram"),
+    }
+    for key in CITY_OFFICES
 }
-
-# Порядок вывода всех офисов в ответе
-CITY_ORDER = ("almaty", "astana", "shymkent", "atyrau", "aktau")
 
 CITY_KEYWORDS = {
     "almaty": [
@@ -40,7 +29,7 @@ CITY_KEYWORDS = {
         "в алматы", "из алматы", "мен алматы",
     ],
     "astana": [
-        "астана", "нур-султан", "нурсултан", "astana", "астанадан", "астанадан",
+        "астана", "нур-султан", "нурсултан", "astana", "астанадан",
         "в астане", "из астаны", "мен астана",
     ],
     "shymkent": [
@@ -59,7 +48,6 @@ _cache: dict | None = None
 
 
 def detect_city(text: str) -> str | None:
-    """Город из фразы: «я в Шымкенте», «мен Алматыдан», «атырау»."""
     lower = text.lower().replace("ё", "е")
     best: tuple[int, str] | None = None
     for city, keywords in CITY_KEYWORDS.items():
@@ -70,7 +58,6 @@ def detect_city(text: str) -> str | None:
 
 
 def resolve_city(text: str, session_city: str | None = None) -> str | None:
-    """Сначала город из текущего сообщения, иначе из сессии."""
     return detect_city(text) or session_city
 
 
@@ -93,54 +80,40 @@ def _load_from_supabase() -> dict:
             }
         return out
     except Exception as e:
-        logger.warning("offices table: %s — using fallback", e)
+        logger.warning("offices table: %s — using formatted fallback", e)
         return {}
 
 
 def get_offices_data() -> dict:
-    """Все 5 городов: fallback + данные Supabase (дополняют, не заменяют)."""
     global _cache
     if _cache is None:
-        merged = {k: dict(v) for k, v in OFFICES_FALLBACK.items()}
+        _cache = dict(OFFICES_FALLBACK)
         db = _load_from_supabase()
         for key, val in db.items():
-            ru = (val.get("ru") or "").strip()
-            kk = (val.get("kk") or "").strip()
-            if ru or kk:
-                merged[key] = {
-                    "ru": ru or merged.get(key, {}).get("ru", ""),
-                    "kk": kk or merged.get(key, {}).get("ru", ""),
-                }
-        _cache = merged
+            if val.get("ru") or val.get("kk"):
+                _cache[key] = val
     return _cache
 
 
 def clear_offices_cache() -> None:
-    """Сброс кэша (тесты / после обновления offices в Supabase)."""
     global _cache
     _cache = None
 
 
-def get_office_block(city: str | None, lang: str) -> str:
-    offices = get_offices_data()
-    if city and city in offices:
-        return offices[city].get(lang, offices[city]["ru"])
-    lines = [
-        offices[c].get(lang, offices[c].get("ru", ""))
-        for c in CITY_ORDER
-        if c in offices and offices[c].get(lang, offices[c].get("ru"))
-    ]
-    return "\n\n".join(lines) if lines else OFFICES_FALLBACK["almaty"][lang]
+def get_office_block(city: str | None, lang: str, platform: Platform = "telegram") -> str:
+    """Текст офисов для промпта LLM или сообщения."""
+    if city and city in CITY_OFFICES:
+        return format_office_city(city, lang, platform)
+    from app.bot.formatting import format_offices_block
+
+    return format_offices_block(lang, platform=platform, with_header=False)
 
 
-def get_contact_footer(city: str | None, lang: str, *, all_cities: bool = False) -> str:
-    """Контакты: один город или все."""
-    if lang == "kk":
-        lead = "Байланыс:\n"
-        ask = "Немесе қоңырау шалыңыз / офиске келіңіз."
-    else:
-        lead = "Контакты:\n"
-        ask = "Или позвоните / приходите в офис."
-    if city and not all_cities:
-        return f"{lead}{get_office_block(city, lang)}\n{ask}"
-    return f"{lead}{get_office_block(None, lang)}\n{ask}"
+def get_contact_footer(
+    city: str | None,
+    lang: str,
+    *,
+    all_cities: bool = False,
+    platform: Platform = "telegram",
+) -> str:
+    return format_contact_footer(lang, city, all_cities=all_cities, platform=platform)

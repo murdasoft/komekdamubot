@@ -17,6 +17,7 @@ def finalize_bot_response(
     user_message: str,
     lang: str,
     session_city: str | None,
+    platform: str = "telegram",
 ) -> str:
     """Короткий ответ + контакты при неуверенности."""
     if not text:
@@ -40,7 +41,9 @@ def finalize_bot_response(
         return clean.replace("  [DONE]", " [DONE]")
 
     if needs_contacts:
-        footer = get_contact_footer(city, lang, all_cities=not bool(city))
+        footer = get_contact_footer(
+            city, lang, all_cities=not bool(city), platform=platform  # type: ignore[arg-type]
+        )
         clean = f"{clean}\n\n{footer}"
 
     notify = "[NOTIFY_MANAGER]" in text

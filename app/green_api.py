@@ -24,6 +24,9 @@ class GreenApiClient:
 
     async def send_message(self, phone: str, message: str) -> dict[str, Any] | None:
         """Send text message to WhatsApp number."""
+        from app.bot.outbound import adapt_message_for_platform
+
+        message = adapt_message_for_platform(message, "whatsapp")
         url = f"{self.base_url}/sendMessage/{self.token}"
         # Normalize phone
         phone_clean = phone.replace("+", "").replace(" ", "").replace("-", "")
