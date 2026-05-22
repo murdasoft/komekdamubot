@@ -124,7 +124,7 @@ def parse_amount_tenge(text: str) -> int | None:
 
 def format_loan_offer(product_key: str, amount: int, lang: str) -> str:
     """Ответ на «хочу кредит N» — условия + примерный платёж."""
-    from app.bot.loan_calc import format_calculator_result
+    from app.bot.loan_calc import calculate_loan_payment, format_calculator_result
 
     info = get_product_info(product_key, lang)
     if not info:
