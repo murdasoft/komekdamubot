@@ -13,7 +13,7 @@ from fastapi import FastAPI, Request, Response, Header, HTTPException
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
-from app.groq_client import GroqClient
+from app.ai_client import AIClient, create_ai_client
 from app.telegram_api import TelegramClient
 from app.green_api import GreenApiClient
 from app.bot.handlers import handle_telegram_update, handle_whatsapp_update
@@ -27,54 +27,69 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Global clients
-groq_client: Optional[GroqClient] = None
+ai_client: Optional[AIClient] = None
 tg_client: Optional[TelegramClient] = None
 wa_client: Optional[GreenApiClient] = None
+_clients_ready = False
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Initialize and cleanup resources."""
-    global groq_client, tg_client, wa_client
-    
+async def ensure_clients() -> None:
+    """Lazy init for Vercel serverless (lifespan may be off)."""
+    global ai_client, tg_client, wa_client, _clients_ready
+    if _clients_ready:
+        return
     settings = get_settings()
-    
-    # Initialize Groq
-    if settings.is_groq_configured:
-        groq_client = GroqClient(
-            api_key=settings.groq_api_key,
-            model=settings.groq_model,
-            stt_model=settings.groq_stt_model,
-        )
-        logger.info("Groq client initialized")
-    else:
-        logger.warning("Groq API key not configured")
-    
-    # Initialize Telegram
+    ai_client = create_ai_client(settings)
     if settings.is_telegram_configured:
         tg_client = TelegramClient(settings.telegram_bot_token)
-        logger.info("Telegram client initialized")
-        
-        # Set webhook
-        if settings.webhook_base_url:
-            result = await tg_client.set_webhook(
-                settings.telegram_webhook_url,
-                settings.telegram_webhook_secret
-            )
-            logger.info(f"Telegram webhook set: {result}")
-    else:
-        logger.warning("Telegram bot token not configured")
-    
-    # Initialize WhatsApp
     if settings.is_whatsapp_configured:
         wa_client = GreenApiClient(
             instance_id=settings.green_api_instance_id,
             token=settings.green_api_token,
         )
-        logger.info("WhatsApp (Green API) client initialized")
-    else:
-        logger.warning("Green API credentials not configured")
+    _clients_ready = True
+    logger.info(
+        "Clients ready: ai=%s provider=%s tg=%s wa=%s",
+        ai_client is not None,
+        settings.effective_ai_provider,
+        tg_client is not None,
+        wa_client is not None,
+    )
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize and cleanup resources."""
+    global ai_client, tg_client, wa_client
     
+    await ensure_clients()
+    settings = get_settings()
+    if settings.local_llm_base_url and settings.effective_ai_provider == "local":
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                await client.post(
+                    f"{settings.local_llm_base_url.rstrip('/')}/api/chat",
+                    json={
+                        "model": settings.local_llm_model,
+                        "messages": [{"role": "user", "content": "да"}],
+                        "stream": False,
+                        "keep_alive": settings.local_llm_keep_alive,
+                        "options": {
+                            "num_predict": 16,
+                            "num_ctx": settings.local_llm_num_ctx,
+                        },
+                    },
+                )
+            logger.info("Ollama model warmed up")
+        except Exception as e:
+            logger.warning("Ollama warmup failed: %s", e)
+    if tg_client and settings.webhook_base_url:
+        result = await tg_client.set_webhook(
+            settings.telegram_webhook_url,
+            settings.telegram_webhook_secret,
+        )
+        logger.info("Telegram webhook set: %s", result)
     yield
     
     # Note: do NOT delete webhook on shutdown — Vercel serverless restarts frequently
@@ -96,6 +111,8 @@ async def root():
         "status": "ok",
         "telegram_configured": settings.is_telegram_configured,
         "whatsapp_configured": settings.is_whatsapp_configured,
+        "ai_configured": settings.is_ai_configured,
+        "ai_provider": settings.effective_ai_provider,
         "groq_configured": settings.is_groq_configured,
         "bitrix_configured": bool(settings.bitrix24_webhook_url),
     }
@@ -106,7 +123,8 @@ async def health():
     """Health check."""
     return {
         "status": "healthy",
-        "groq": groq_client is not None,
+        "ai": ai_client is not None,
+        "ai_provider": get_settings().effective_ai_provider,
         "telegram": tg_client is not None,
         "whatsapp": wa_client is not None,
     }
@@ -118,6 +136,7 @@ async def telegram_webhook(
     x_telegram_bot_api_secret_token: str = Header(default=None),
 ):
     """Handle Telegram webhook updates."""
+    await ensure_clients()
     settings = get_settings()
     
     # Rate limiting check
@@ -139,7 +158,7 @@ async def telegram_webhook(
     logger.debug(f"Telegram update: {body}")
     
     try:
-        await handle_telegram_update(body, tg_client, groq_client)
+        await handle_telegram_update(body, tg_client, ai_client)
     except Exception as e:
         logger.exception("Error handling Telegram update")
         # Still return 200 to avoid retries
@@ -154,6 +173,7 @@ async def whatsapp_webhook(
     x_webhook_token: str = Header(default=""),
 ):
     """Handle WhatsApp (Green API) webhook updates."""
+    await ensure_clients()
     settings = get_settings()
     
     # Rate limiting check
@@ -190,7 +210,7 @@ async def whatsapp_webhook(
         return Response(status_code=200)
     
     try:
-        await handle_whatsapp_update(body, wa_client, groq_client)
+        await handle_whatsapp_update(body, wa_client, ai_client)
     except Exception as e:
         logger.exception("Error handling WhatsApp update")
     
@@ -216,6 +236,7 @@ async def admin_leads(days: int = 7):
 @app.get("/setup")
 async def setup_webhooks():
     """Manually setup webhooks (useful for testing)."""
+    await ensure_clients()
     settings = get_settings()
     results = {}
     

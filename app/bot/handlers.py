@@ -12,8 +12,11 @@ from typing import Any, Dict, Optional, List
 from collections import defaultdict
 
 from app.config import get_settings
-from app.groq_client import GroqClient, get_system_prompt, detect_city
+from app.ai_client import AIClient
+from app.groq_client import get_system_prompt, detect_city
 from app.gemini_client import GeminiClient, get_gemini_client
+from app.bot.faq_matcher import try_fast_response
+from app.bot.loan_calc import calculate_loan_payment, format_calculator_result
 from app.bot.knowledge_base import (
     detect_intent, get_product_info, get_faq_answer,
     PRODUCTS, FAQ_ANSWERS
@@ -70,52 +73,52 @@ def get_small_talk_response(category: str, lang: str = "ru") -> str:
     """Get small talk response for category."""
     return SMALL_TALK.get(lang, SMALL_TALK["ru"]).get(category, SMALL_TALK["ru"]["unknown"])
 
+def _has_business_content(text_lower: str) -> bool:
+    """Сообщение про продукт/сумму — не считать чистым приветствием."""
+    hints = (
+        "кредит", "ипотек", "несие", "даму", "рефинанс", "тенге", "тг",
+        "млн", "миллион", "займ", "сумм", "ставк", "процент", "взять", "оформ",
+    )
+    if any(h in text_lower for h in hints):
+        return True
+    digits = re.sub(r"\D", "", text_lower)
+    return len(digits) >= 5
+
+
 def detect_small_talk_intent(text: str) -> str | None:
     """Detect if user is making small talk vs asking about products."""
-    text_lower = text.lower()
-    
+    text_lower = text.lower().strip()
+    if not text_lower:
+        return None
+
+    if _has_business_content(text_lower):
+        return None
+
+    # «пока ещё не знаю» — не прощание; только явное «пока» в конце или отдельной фразой
+    if re.search(r"(?:^|\s)пока\s*(?:[!?.]|$)", text_lower) and not re.search(
+        r"пока\s+(?:еще|ещё|не|что|так|сейчас|здесь)", text_lower
+    ):
+        return "bye"
+
     greetings = ["привет", "здравствуй", "сәлем", "сәлеметсіз", "hi", "hello", "hey"]
     thanks = ["спасибо", "благодар", "рахмет", "рақмет", "спс", "thanks", "thank you"]
     how_are_you = ["как дела", "как ты", "қалайсыз", "қалай", "how are you", "как поживаешь"]
-    bye = ["пока", "до свидания", "сау", "сау бол", "bye", "goodbye", "до встречи"]
-    
-    for word in greetings:
-        if word in text_lower:
+    bye = ["до свидания", "сау бол", "bye", "goodbye", "до встречи"]
+
+    for phrase in greetings:
+        if phrase in text_lower:
             return "greeting"
-    for word in thanks:
-        if word in text_lower:
+    for phrase in thanks:
+        if phrase in text_lower:
             return "thanks"
-    for word in how_are_you:
-        if word in text_lower:
+    for phrase in how_are_you:
+        if phrase in text_lower:
             return "how_are_you"
-    for word in bye:
-        if word in text_lower:
+    for phrase in bye:
+        if phrase in text_lower:
             return "bye"
-    
+
     return None
-
-
-def calculate_loan_payment(amount: float, rate: float, years: int) -> tuple[float, float]:
-    """Calculate monthly loan payment using annuity formula.
-    
-    Args:
-        amount: Loan amount (principal)
-        rate: Annual interest rate (e.g., 12.6 for 12.6%)
-        years: Loan term in years
-    
-    Returns:
-        (monthly_payment, total_payment)
-    """
-    monthly_rate = rate / 100 / 12
-    months = years * 12
-    
-    if monthly_rate == 0:
-        monthly = amount / months
-    else:
-        monthly = amount * (monthly_rate * (1 + monthly_rate) ** months) / ((1 + monthly_rate) ** months - 1)
-    
-    total = monthly * months
-    return round(monthly, 0), round(total, 0)
 
 
 def detect_calculator_intent(text: str) -> tuple[bool, dict | None]:
@@ -129,10 +132,11 @@ def detect_calculator_intent(text: str) -> tuple[bool, dict | None]:
     
     # Keywords for calculation
     calc_keywords = [
-        "рассчитай", "сколько платить", "платеж", "калькулятор", "выплата", 
+        "рассчитай", "сколько платить", "платеж", "калькулятор", "выплата",
         "посчитай", "сколько будет", "ежемесячный", "аннуитет",
-        "если возьму", "хочу взять", "планирую взять",
-        "есіптей", "есептеу", "түсім", "калькулятор", "алсам", "алмақпын"
+        "если возьму", "хочу взять", "взять хочу", "хочу взять", "взять кредит",
+        "кредит на", "планирую взять", "нужен кредит", "нужно взять",
+        "есіптей", "есептеу", "түсім", "калькулятор", "алсам", "алмақпын",
     ]
     
     has_calc_keyword = any(kw in text_lower for kw in calc_keywords)
@@ -214,43 +218,6 @@ def detect_calculator_intent(text: str) -> tuple[bool, dict | None]:
     return True, params
 
 
-def format_calculator_result(params: dict, lang: str = "ru") -> str:
-    """Format loan calculation result."""
-    amount = params["amount"]
-    rate = params["rate"]
-    years = params["years"]
-    
-    monthly, total = calculate_loan_payment(amount, rate, years)
-    overpay = total - amount
-    
-    # Format numbers
-    amount_str = f"{amount:,.0f}".replace(",", " ")
-    monthly_str = f"{monthly:,.0f}".replace(",", " ")
-    total_str = f"{total:,.0f}".replace(",", " ")
-    overpay_str = f"{overpay:,.0f}".replace(",", " ")
-    
-    if lang == "kk":
-        return (
-            f"💰 Кредит сомасы: {amount_str} ₸\n"
-            f"📊 Мерзімі: {years} жыл\n"
-            f"📈 Пайыздық мөлшерлеме: {rate}%\n\n"
-            f"💳 Ай сайынғы төлем: {monthly_str} ₸\n"
-            f"📝 Жалпы төлем: {total_str} ₸\n"
-            f"⚠️ Асылып кету: {overpay_str} ₸\n\n"
-            f"Толық есептеу үшін офиске келіңіз!"
-        )
-    else:
-        return (
-            f"💰 Сумма кредита: {amount_str} ₸\n"
-            f"📊 Срок: {years} лет\n"
-            f"📈 Процентная ставка: {rate}%\n\n"
-            f"💳 Ежемесячный платёж: {monthly_str} ₸\n"
-            f"📝 Общая сумма выплат: {total_str} ₸\n"
-            f"⚠️ Переплата: {overpay_str} ₸\n\n"
-            f"Для точного расчёта приходите в офис!"
-        )
-
-
 async def _get_session(chat_id: str) -> Dict:
     """Get session from Supabase or memory."""
     # Try to load from Supabase first
@@ -299,27 +266,69 @@ def _is_handoff_active(session: Dict) -> bool:
 
 async def _transcribe_voice(
     audio_bytes: bytes,
-    groq: GroqClient,
+    ai: AIClient | None,
     lang_hint: str | None = None
 ) -> tuple[str | None, str]:
-    """Transcribe voice message using Groq Whisper."""
-    detected_lang = None
-    
-    # Try with language hint first
-    if lang_hint:
-        text, err = await groq.transcribe(audio_bytes, language=lang_hint)
+    """Transcribe voice: local faster-whisper first; Groq only if GROQ_ENABLED=true."""
+    if not audio_bytes:
+        return None, lang_hint or "ru"
+
+    langs_to_try: list[str | None] = []
+    for lang in (lang_hint, "ru", "kk", None):
+        if lang not in langs_to_try:
+            langs_to_try.append(lang)
+
+    settings = get_settings()
+    groq_first = settings.groq_enabled and settings.is_groq_configured
+
+    async def _try_local() -> tuple[str | None, str | None]:
+        if not ai:
+            return None, None
+        for lang in langs_to_try:
+            text, err = await ai.transcribe(audio_bytes, language=lang, filename="voice.ogg")
+            if text:
+                return text, lang or ai.detect_language_simple(text)
+            if err:
+                logger.warning("Local Whisper failed lang=%s: %s", lang, err)
+        return None, None
+
+    async def _try_groq() -> tuple[str | None, str | None]:
+        if not settings.is_groq_configured:
+            return None, None
+        from app.groq_client import GroqClient
+        groq = GroqClient(
+            settings.groq_api_key,
+            model=settings.groq_model,
+            stt_model=settings.groq_stt_model,
+        )
+        for lang in langs_to_try:
+            text, err = await groq.transcribe(audio_bytes, filename="voice.ogg", language=lang)
+            if text:
+                return text, lang or groq.detect_language_simple(text)
+            if err:
+                logger.warning("Groq STT failed lang=%s: %s", lang, err)
+        return None, None
+
+    if groq_first:
+        text, detected = await _try_groq()
         if text:
-            detected_lang = lang_hint
-            return text, detected_lang
-    
-    # Try auto-detection
-    text, err = await groq.transcribe(audio_bytes, language=None)
-    if text:
-        # Detect language from transcribed text
-        detected_lang = groq.detect_language_simple(text)
-        return text, detected_lang
-    
-    return None, "ru"  # Default to Russian on failure
+            logger.info("Voice via Groq STT (lang=%s): %s", detected, text[:60])
+            return text, detected or "ru"
+        text, detected = await _try_local()
+        if text:
+            logger.info("Voice via local STT fallback (lang=%s): %s", detected, text[:60])
+            return text, detected or "ru"
+    else:
+        text, detected = await _try_local()
+        if text:
+            logger.info("Voice via local STT (lang=%s): %s", detected, text[:60])
+            return text, detected or "ru"
+        text, detected = await _try_groq()
+        if text:
+            logger.info("Voice via Groq STT fallback (lang=%s): %s", detected, text[:60])
+            return text, detected or "ru"
+
+    return None, lang_hint or "ru"
 
 
 def _build_summary(data: Dict, product_key: str, lang: str) -> str:
@@ -401,9 +410,11 @@ async def _notify_manager(message: str, chat_id: str, platform: str = "telegram"
 async def _handle_ai_response(
     text: str,
     session: Dict,
-    groq: GroqClient,
+    ai: AIClient | None,
 ) -> str | None:
     """Get AI response for free-text queries."""
+    if not ai:
+        return None
     lang = session.get("lang", "ru")
     system_prompt = get_system_prompt(lang)
     
@@ -418,7 +429,7 @@ async def _handle_ai_response(
         {"role": "user", "content": text},
     ]
     
-    response, err = await groq.chat(messages, temperature=0.7)
+    response, err = await ai.chat(messages, temperature=0.7)
     if err:
         logger.error("AI error: %s", err)
         return None
@@ -502,50 +513,96 @@ def _update_session_lang(text: str, session: Dict) -> str:
     return current_lang
 
 
+async def _get_bot_reply(
+    text: str,
+    session: Dict,
+    ai: AIClient | None,
+) -> str | None:
+    """Сначала FAQ без LLM, иначе Ollama/Groq."""
+    settings = get_settings()
+    lang = _update_session_lang(text, session)
+    if settings.fast_faq_enabled:
+        fast = try_fast_response(text, lang)
+        if fast:
+            logger.info("Fast FAQ hit for: %s", text[:40])
+            return fast
+    return await _handle_ai_response_with_context(text, session, ai)
+
+
 async def _handle_ai_response_with_context(
     text: str,
     session: Dict,
-    groq: GroqClient,
+    ai: AIClient | None,
 ) -> str | None:
     """Get AI response with conversation history for context understanding."""
-    lang = _update_session_lang(text, session)
-    # Detect city from current message and persist in session
+    if not ai:
+        return None
+    lang = session.get("lang", "ru")
     found_city = detect_city(text)
     if found_city:
         session["city"] = found_city
     city = session.get("city")
     system_prompt = get_system_prompt(lang, city=city)
-    
-    # Build context from knowledge base
-    context = "Доступные продукты:\n"
-    for key, product in PRODUCTS.items():
-        name = product.name_ru if lang == "ru" else product.name_kk
-        context += f"- {name}\n"
-    
-    # Build conversation history
+
+    intent = detect_intent(text)
+    if intent:
+        info = get_product_info(intent, lang)
+        if info:
+            context = (
+                f"Продукт: {info['name']}. {info['description']}. "
+                f"Условия: {info['conditions'][:400]}"
+            )
+        else:
+            context = ""
+    else:
+        names = [
+            (p.name_ru if lang == "ru" else p.name_kk)
+            for p in PRODUCTS.values()
+        ]
+        context = "Продукты: " + ", ".join(names)
+
     history = session.get("conversation_history", [])
     messages = [{"role": "system", "content": system_prompt + "\n\n" + context}]
-    
-    # Add last 5 messages for context
-    for msg in history[-5:]:
+
+    for msg in history[-2:]:
         role = "user" if msg["role"] == "user" else "assistant"
-        messages.append({"role": role, "content": msg["text"]})
-    
-    # Add current message
+        messages.append({"role": role, "content": msg["text"][:300]})
+
     messages.append({"role": "user", "content": text})
-    
-    # Try Groq first
-    response, err = await groq.chat(messages, temperature=0.8)
+
+    settings = get_settings()
+    from app.groq_client import GroqClient
+    response, err = None, None
+    max_tok = settings.local_llm_max_tokens
+    use_groq = settings.effective_ai_provider == "groq" or (
+        settings.groq_enabled and settings.is_groq_configured
+    )
+
+    if use_groq and settings.is_groq_configured:
+        groq = GroqClient(settings.groq_api_key, settings.groq_model, settings.groq_stt_model)
+        response, err = await groq.chat(messages, temperature=0.6, max_tokens=max_tok)
+    elif ai:
+        import asyncio
+        try:
+            response, err = await asyncio.wait_for(
+                ai.chat(messages, temperature=0.6, max_tokens=max_tok),
+                timeout=30.0,
+            )
+        except asyncio.TimeoutError:
+            err = "local llm timeout"
+            response = None
+    if (err or not response) and settings.is_groq_configured and not use_groq:
+        logger.warning("Local LLM failed (%s), Groq fallback", err)
+        groq = GroqClient(settings.groq_api_key, settings.groq_model, settings.groq_stt_model)
+        response, err = await groq.chat(messages, temperature=0.6, max_tokens=max_tok)
     if err:
-        logger.error("Groq error: %s", err)
-        # Check if rate limit (429) - try Gemini as fallback
+        logger.error("AI chat error: %s", err)
         if "429" in str(err) or "rate_limit" in str(err).lower():
-            logger.info("Groq rate limit, trying Gemini fallback...")
+            logger.info("Rate limit, trying Gemini fallback...")
             gemini = get_gemini_client()
             response, gemini_err = await gemini.chat(messages, temperature=0.7)
             if gemini_err:
                 logger.error("Gemini fallback also failed: %s", gemini_err)
-                # Both failed - use static fallback
                 return content.get_ai_fallback_message(lang, city) + " [DONE]"
             logger.info(f"Gemini fallback success: '{response[:100] if response else 'None'}...'")
             return response
@@ -559,7 +616,7 @@ async def _process_flow_step(
     text: str,
     session: Dict,
     send_message_func,
-    groq: GroqClient,
+    ai: AIClient | None,
 ) -> bool:
     """
     Process flow step. Returns True if flow should continue.
@@ -597,8 +654,8 @@ async def _process_flow_step(
         is_valid, validated = step.validate(text)
         if not is_valid:
             # If looks like off-topic free text (not a number/yes/no) — answer via AI and stay in flow
-            if groq and len(text) > 5 and not any(c.isdigit() for c in text):
-                ai_reply = await groq.chat(
+            if ai and len(text) > 5 and not any(c.isdigit() for c in text):
+                ai_reply = await ai.chat(
                     system=(
                         "Ты консультант KOMEK DAMU. Пользователь заполняет анкету на кредит и написал вопрос. "
                         "Ответь коротко (1-2 предложения) и напомни ему продолжить заполнение анкеты."
@@ -640,7 +697,7 @@ async def _process_flow_step(
     next_step_key = step.next_step
     if next_step_key == "done" or not next_step_key:
         # Flow completed
-        await _finish_flow(chat_id, session, send_message_func, groq)
+        await _finish_flow(chat_id, session, send_message_func, ai)
         return False
     
     # Set next step
@@ -657,7 +714,7 @@ async def _finish_flow(
     chat_id: str,
     session: Dict,
     send_message_func,
-    groq: GroqClient,
+    ai: AIClient | None,
 ):
     """Complete flow and send lead to manager."""
     product_key = session.get("product", "unknown")
@@ -730,7 +787,7 @@ async def _start_product_flow(
 async def handle_telegram_update(
     body: Dict[str, Any],
     tg_client,
-    groq: GroqClient,
+    ai: AIClient | None,
 ):
     """Handle Telegram webhook update."""
     from app.telegram_api import (
@@ -810,6 +867,15 @@ async def handle_telegram_update(
                 )
             await tg_client.send_message(chat_id, greeting)
             return
+
+    # После /start можно сразу писать вопрос — не обязательно жать 1 или 2
+    session_early = await _get_session(chat_id)
+    if session_early.get("state") == "selecting_lang" and text and text.strip() not in ["1", "2"]:
+        t = text.strip()
+        session_early["lang"] = "kk" if any(c in _KK_CHARS for c in t.lower()) else "ru"
+        session_early["state"] = "idle"
+        await save_session(chat_id, session_early)
+        logger.info("Auto language %s from text, processing: %s", session_early["lang"], text[:40])
     
     # Handle 99 for language re-selection (from menu)
     if text and text.strip() == "99":
@@ -847,7 +913,7 @@ async def handle_telegram_update(
         # Still answer questions via AI even in handoff
         if text:
             lang_h = session.get("lang", "ru")
-            ai_response = await _handle_ai_response_with_context(text.strip(), session, groq)
+            ai_response = await _handle_ai_response_with_context(text.strip(), session, ai)
             if ai_response:
                 await tg_client.send_message(chat_id, ai_response)
             else:
@@ -862,47 +928,56 @@ async def handle_telegram_update(
     # Handle voice message
     if is_voice_message(body):
         settings = get_settings()
-        if not settings.is_groq_configured:
+        if not settings.is_ai_configured and not settings.is_groq_configured:
             await tg_client.send_message(
                 chat_id,
                 "Голосовые сообщения временно недоступны. Пожалуйста, напишите текстом."
             )
             return
-        
+
+        lang_ui = session.get("lang", "ru")
+        await tg_client.send_message(
+            chat_id,
+            "🎤 Слушаю голосовое, секунду..."
+            if lang_ui == "ru" else "🎤 Дауыстық хабарламаны тыңдап жатырмын..."
+        )
+
         file_id = get_voice_file_id(body)
         if file_id:
-            # Download voice file
             file_info = await tg_client.get_file(file_id)
             if file_info and file_info.get("result", {}).get("file_path"):
                 file_path = file_info["result"]["file_path"]
                 file_url = get_file_url(settings.telegram_bot_token, file_path)
-                
+
                 import httpx
-                async with httpx.AsyncClient() as client:
+                async with httpx.AsyncClient(timeout=60.0) as client:
                     r = await client.get(file_url)
                     audio_bytes = r.content
-                
-                # Transcribe
+
                 transcribed, detected_lang = await _transcribe_voice(
-                    audio_bytes, groq, session.get("lang")
+                    audio_bytes, ai, session.get("lang") if session.get("lang") in ("ru", "kk") else "ru"
                 )
-                
-                logger.info(f"Voice transcription result: '{transcribed}' lang={detected_lang} for chat={chat_id}")
-                
+
+                logger.info("Voice result chat=%s: lang=%s text=%s", chat_id, detected_lang, transcribed)
+
                 if transcribed and transcribed.strip():
-                    # Detect lang from transcribed text, not from Whisper (more reliable)
-                    detected_lang = _detect_lang(transcribed)
-                    session["lang"] = detected_lang
+                    # Язык от Whisper/Groq; словарь только если есть казахские буквы
+                    if any(c in _KK_CHARS for c in transcribed.lower()):
+                        session["lang"] = "kk"
+                    elif detected_lang in ("ru", "kk"):
+                        session["lang"] = detected_lang
+                    elif session.get("lang") not in ("ru", "kk"):
+                        session["lang"] = "ru"
+                    session["state"] = "idle"
                     text = transcribed.strip()
-                    logger.info(f"Voice processed: lang={detected_lang}, text='{text[:50]}...'")
+                    logger.info("Voice OK: lang=%s text=%s", session["lang"], text[:50])
                 elif transcribed:
-                    logger.warning(f"Voice transcription empty/whitespace for chat={chat_id}")
                     await tg_client.send_message(chat_id, "Не расслышал. Повторите, пожалуйста.")
                     return
                 else:
                     await tg_client.send_message(
                         chat_id,
-                        content.LANG_DETECT_FAILED_RU if session.get("lang", "ru") == "ru" else content.LANG_DETECT_FAILED_KK
+                        content.LANG_DETECT_FAILED_RU if lang_ui == "ru" else content.LANG_DETECT_FAILED_KK
                     )
                     return
     
@@ -927,7 +1002,7 @@ async def handle_telegram_update(
             "text": text_stripped,
             "timestamp": time.time()
         })
-        ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
+        ai_response = await _handle_ai_response_with_context(text_stripped, session, ai)
         if ai_response:
             session["conversation_history"].append({
                 "role": "assistant",
@@ -996,10 +1071,9 @@ async def handle_telegram_update(
         await log_message(chat_id, platform, "assistant", calc_result, lang)
         return
     
-    # AI response for any text (when not in flow)
+    # Ответ: FAQ мгновенно, иначе LLM (idle, не в сценарии)
     if session.get("state") == "idle" and not callback_id:
-        # AI response — no flows, just conversation
-        ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
+        ai_response = await _get_bot_reply(text_stripped, session, ai)
         if ai_response:
             # Extract control tags
             notify_manager = "[NOTIFY_MANAGER]" in ai_response
@@ -1059,27 +1133,11 @@ async def handle_telegram_update(
         await _process_flow_step(
             chat_id, text_stripped, session,
             lambda m: tg_client.send_message(chat_id, m),
-            groq
+            ai
         )
         return
     
-    # FAQ detection (simple keyword matching)
-    faq_keywords = {
-        "адрес": "address", "мекенжай": "address", "где": "address",
-        "график": "work_hours", "жұмыс уақыты": "work_hours", "время": "work_hours",
-        "платно": "consultation_free", "бесплатно": "consultation_free", "тегін": "consultation_free",
-        "сколько времени": "how_long", "когда": "how_long", "қашан": "how_long",
-    }
-    
-    text_lower = text_stripped.lower()
-    for keyword, faq_key in faq_keywords.items():
-        if keyword in text_lower:
-            answer = get_faq_answer(faq_key, lang)
-            await tg_client.send_message(chat_id, answer)
-            return
-    
-    # AI response for unrecognized text with context
-    ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
+    ai_response = await _get_bot_reply(text_stripped, session, ai)
     if ai_response:
         # Store bot response in history
         session["conversation_history"].append({
@@ -1098,7 +1156,7 @@ async def handle_telegram_update(
 async def handle_whatsapp_update(
     body: Dict[str, Any],
     wa_client,
-    groq: GroqClient,
+    ai: AIClient | None,
 ):
     """Handle WhatsApp (Green API) webhook update."""
     from app.green_api import extract_green_info, is_voice_message
@@ -1120,12 +1178,12 @@ async def handle_whatsapp_update(
     # Handle voice message
     if is_voice_message(body) and media_url:
         settings = get_settings()
-        if settings.is_groq_configured and settings.is_whatsapp_configured:
+        if settings.is_ai_configured and settings.is_whatsapp_configured:
             # Download and transcribe
             audio_bytes = await wa_client.download_file(media_url)
             if audio_bytes:
                 transcribed, detected_lang = await _transcribe_voice(
-                    audio_bytes, groq, session.get("lang")
+                    audio_bytes, ai, session.get("lang")
                 )
                 if transcribed:
                     session["lang"] = detected_lang
@@ -1222,10 +1280,15 @@ async def handle_whatsapp_update(
         await _process_flow_step(
             chat_id, text_stripped, session,
             lambda m: send_wa_with_hint(m),
-            groq
+            ai
         )
         return
     
+    small_talk_intent = detect_small_talk_intent(text_stripped)
+    if small_talk_intent and session.get("state") == "idle":
+        await send_wa_with_hint(get_small_talk_response(small_talk_intent, lang))
+        return
+
     # Check for loan calculator request (WhatsApp)
     is_calc, calc_params = detect_calculator_intent(text_stripped)
     if is_calc and calc_params:
@@ -1248,7 +1311,7 @@ async def handle_whatsapp_update(
         "text": text_stripped,
         "timestamp": time.time()
     })
-    ai_response = await _handle_ai_response_with_context(text_stripped, session, groq)
+    ai_response = await _get_bot_reply(text_stripped, session, ai)
     if ai_response:
         notify_manager = "[NOTIFY_MANAGER]" in ai_response
         clean_response = ai_response.replace("[NOTIFY_MANAGER]", "").replace("[DONE]", "").strip()

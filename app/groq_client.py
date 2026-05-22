@@ -11,6 +11,8 @@ from typing import Any
 
 import httpx
 
+from app.ai_utils import detect_language_simple as _detect_language_simple
+
 logger = logging.getLogger(__name__)
 
 GROQ_API_BASE = "https://api.groq.com/openai/v1"
@@ -105,27 +107,7 @@ class GroqClient:
             return None, str(e)
 
     def detect_language_simple(self, text: str) -> str:
-        """
-        Simple heuristic to detect if text is Kazakh or Russian.
-        Returns 'kk' for Kazakh, 'ru' for Russian.
-        """
-        # Kazakh-specific characters
-        kazakh_chars = set("әіңғүұқөһӘІҢҒҮҰҚӨҺ")
-        text_sample = text[:200]
-        
-        for char in kazakh_chars:
-            if char in text_sample:
-                return "kk"
-        
-        # Common Kazakh words
-        kazakh_words = ["сіз", "мен", "біз", "немесе", "және", "болды", "қазақстан", "қазақ"]
-        text_lower = text.lower()
-        kazakh_score = sum(1 for w in kazakh_words if w in text_lower)
-        
-        if kazakh_score >= 2:
-            return "kk"
-        
-        return "ru"
+        return _detect_language_simple(text)
 
 
 OFFICES = {
