@@ -35,22 +35,43 @@ OFFICES_FALLBACK = {
 CITY_ORDER = ("almaty", "astana", "shymkent", "atyrau", "aktau")
 
 CITY_KEYWORDS = {
-    "almaty": ["алматы", "алма-ата", "almaty"],
-    "astana": ["астана", "нур-султан", "нурсултан", "astana"],
-    "shymkent": ["шымкент", "шимкент", "shymkent"],
-    "atyrau": ["атырау", "atyrau"],
-    "aktau": ["актау", "ақтау", "aktau"],
+    "almaty": [
+        "алматы", "алма-ата", "almaty", "алматылы", "алматиден", "алматыдан",
+        "в алматы", "из алматы", "мен алматы",
+    ],
+    "astana": [
+        "астана", "нур-султан", "нурсултан", "astana", "астанадан", "астанадан",
+        "в астане", "из астаны", "мен астана",
+    ],
+    "shymkent": [
+        "шымкент", "шимкент", "shymkent", "шымкентте", "шымкенттен", "шымкенттемін",
+        "в шымкенте", "из шымкента", "мен шымкент",
+    ],
+    "atyrau": [
+        "атырау", "atyrau", "атырауда", "атыраудан", "в атырау", "из атырау",
+    ],
+    "aktau": [
+        "актау", "ақтау", "aktau", "актауда", "актаудан", "в актау", "в ақтау",
+    ],
 }
 
 _cache: dict | None = None
 
 
 def detect_city(text: str) -> str | None:
-    lower = text.lower()
+    """Город из фразы: «я в Шымкенте», «мен Алматыдан», «атырау»."""
+    lower = text.lower().replace("ё", "е")
+    best: tuple[int, str] | None = None
     for city, keywords in CITY_KEYWORDS.items():
-        if any(kw in lower for kw in keywords):
-            return city
-    return None
+        for kw in keywords:
+            if kw in lower and (best is None or len(kw) > best[0]):
+                best = (len(kw), city)
+    return best[1] if best else None
+
+
+def resolve_city(text: str, session_city: str | None = None) -> str | None:
+    """Сначала город из текущего сообщения, иначе из сессии."""
+    return detect_city(text) or session_city
 
 
 def _load_from_supabase() -> dict:

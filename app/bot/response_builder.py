@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from app.offices import get_contact_footer, detect_city
+from app.offices import detect_city, get_contact_footer, resolve_city
 
 _UNCERTAIN_MARKERS = (
     "не знаю", "не уверен", "уточните", "уточнить", "подробнее",
@@ -23,7 +23,7 @@ def finalize_bot_response(
         return text
 
     clean = text.replace("[NOTIFY_MANAGER]", "").replace("[DONE]", "").strip()
-    city = session_city or detect_city(user_message) or detect_city(clean)
+    city = resolve_city(user_message, session_city) or detect_city(clean)
 
     lower = clean.lower()
     needs_contacts = (

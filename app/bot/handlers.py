@@ -465,6 +465,9 @@ async def _get_bot_reply(
     """FAQ без LLM, иначе Together/Groq."""
     settings = get_settings()
     lang = _update_session_lang(text, session)
+    found_city = detect_city(text)
+    if found_city:
+        session["city"] = found_city
     core = strip_leading_greeting(text)
     if settings.fast_faq_enabled:
         fast = try_fast_response(core, lang, session.get("city"))
@@ -1145,6 +1148,10 @@ async def handle_whatsapp_update(
         return
     
     text_stripped = text.strip()
+
+    found_city = detect_city(text_stripped)
+    if found_city:
+        session["city"] = found_city
     
     lang = session.get("lang", "ru")
 

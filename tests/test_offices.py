@@ -1,4 +1,11 @@
-from app.offices import clear_offices_cache, get_office_block, get_offices_data, OFFICES_FALLBACK
+from app.offices import (
+    clear_offices_cache,
+    detect_city,
+    get_office_block,
+    get_offices_data,
+    OFFICES_FALLBACK,
+)
+from app.bot.faq_matcher import try_fast_response, _attach_contacts
 
 
 def test_all_five_cities_in_fallback_block():
@@ -25,3 +32,22 @@ def test_merge_partial_supabase_keeps_all_cities(monkeypatch):
     assert "Шымкент" in block
     assert "Атырау" in block
     assert "Актау" in block
+
+
+def test_detect_city_from_message():
+    assert detect_city("мен Шымкенттемін") == "shymkent"
+    assert detect_city("я в Алматы") == "almaty"
+    assert detect_city("20 млн керек") is None
+
+
+def test_attach_contacts_one_city_only():
+    ans = _attach_contacts("Жауап", "kk", "shymkent")
+    assert ans.count("📍") == 1
+    assert "Шымкент" in ans
+    assert "Астана" not in ans
+
+
+def test_faq_with_city_session():
+    clear_offices_cache()
+    r = try_fast_response("даму для ип", "kk", session_city="shymkent")
+    assert r and r.count("📍") == 1 and "Шымкент" in r
