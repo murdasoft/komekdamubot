@@ -125,6 +125,8 @@ UNKNOWN_KK = get_unknown_message_with_phone("kk")
 # Language detection failed
 LANG_DETECT_FAILED_RU = "Извините, не удалось определить язык. Пожалуйста, напишите текстом."
 LANG_DETECT_FAILED_KK = "Кешіріңіз, тілді анықтау мүмкін болмады. Мәтінмен жазыңыз."
+VOICE_STT_FAILED_RU = "Не расслышал. Повторите голосом или напишите текстом."
+VOICE_STT_FAILED_KK = "Естіген жоқпын. Дауыспен қайта жіберіңіз немесе мәтінмен жазыңыз."
 
 # WhatsApp demo for Telegram users
 WHATSAPP_DEMO_RU = """📱 *Как выглядит этот бот в WhatsApp*

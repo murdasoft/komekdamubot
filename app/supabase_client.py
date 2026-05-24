@@ -40,6 +40,8 @@ SESSION_PERSIST_KEYS = (
     "city",
     "city_confirmed",
     "submenu",
+    "last_intent",
+    "awaiting_borrower_type",
 )
 
 

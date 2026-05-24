@@ -360,6 +360,9 @@ def is_personal_credit_question(text: str, session: Optional[dict] = None) -> bo
         follow_up = (
             "лимит",
             "процент",
+            "пайыз",
+            "канша",
+            "қанша",
             "ставк",
             "срок",
             "лет",
@@ -382,7 +385,10 @@ def format_personal_credit_answer(lang: str, text: str = "") -> str:
     """Условия физлица по ИИ2026 §4 — без LLM."""
     low = (text or "").lower()
     words_n = len(low.split())
-    rate_q = any(w in low for w in ("процент", "ставк", "от скольк", "до скольк", "процентн"))
+    rate_q = any(
+        w in low
+        for w in ("процент", "ставк", "от скольк", "до скольк", "процентн", "пайыз", "канша", "қанша")
+    )
     term_q = any(w in low for w in ("срок", "лет", "год", "мерзім", "жыл")) and "работ" not in low
     limit_q = any(w in low for w in ("лимит", "сумм", "млн", "сколько максим"))
     if (rate_q and term_q) or (limit_q and term_q) or "физлиц" in low or words_n > 5:

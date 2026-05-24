@@ -478,7 +478,7 @@ def _update_session_lang(text: str, session: Dict) -> str:
 
 
 def _update_session_intent(text: str, session: Dict) -> None:
-  """Запомнить продукт для уточняющих вопросов («а процент?», «сколько лет?»)."""
+    """Запомнить продукт для уточняющих вопросов («а процент?», «сколько лет?»)."""
     from app.bot.knowledge_base import (
         detect_intent,
         is_ip_credit_question,
@@ -1270,9 +1270,9 @@ async def handle_whatsapp_update(
             else:
                 logger.warning("WA voice STT empty chat=%s", chat_id)
                 await send_wa_with_hint(
-                    content.LANG_DETECT_FAILED_KK
+                    content.VOICE_STT_FAILED_KK
                     if lang_ui == "kk"
-                    else "Не расслышал. Повторите голосом или напишите текстом."
+                    else content.VOICE_STT_FAILED_RU
                 )
                 return
         except Exception:
