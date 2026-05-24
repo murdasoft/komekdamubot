@@ -4,7 +4,8 @@ Tests for handlers module.
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from app.bot.handlers import _detect_language, _build_summary, _reset_session
+from app.bot.handlers import _detect_language, _build_summary, _reset_session, _update_session_lang
+from app.bot.content import DEFAULT_LANG
 
 
 class TestLanguageDetection:
@@ -25,12 +26,14 @@ class TestLanguageDetection:
         """Test detecting Russian."""
         assert _detect_language("Привет, как дела") == "ru"
         assert _detect_language("Нужен кредит") == "ru"
-        assert _detect_language("ипотека") == "ru"
+
+    def test_ambiguous_defaults_kazakh(self):
+        assert _detect_language("ипотека") == "kk"
     
-    def test_detect_russian_default(self):
-        """Test Russian is default for unknown text."""
-        assert _detect_language("hello world") == "ru"
-        assert _detect_language("12345") == "ru"
+    def test_detect_kazakh_default(self):
+        """Test Kazakh is default for unknown text."""
+        assert _detect_language("hello world") == "kk"
+        assert _detect_language("12345") == "kk"
 
 
 class TestSummaryBuilder:
@@ -71,6 +74,15 @@ class TestSummaryBuilder:
 
 class TestSessionManagement:
     """Test session management."""
+
+    def test_update_session_lang_stays_kazakh_on_russian_text(self):
+        session = {"lang": DEFAULT_LANG, "lang_locked": False}
+        assert _update_session_lang("1 000 000 тенге кредит на тоо", session) == "kk"
+        assert session["lang"] == "kk"
+
+    def test_update_session_lang_respects_locked_russian(self):
+        session = {"lang": "ru", "lang_locked": True}
+        assert _update_session_lang("сәлем", session) == "ru"
     
     def test_reset_session(self):
         """Test session reset."""
@@ -80,7 +92,7 @@ class TestSessionManagement:
         session = _get_session("test_chat_123")
         
         assert session["state"] == "idle"
-        assert session["lang"] == "ru"
+        assert session["lang"] == "kk"
         assert session["product"] is None
         assert session["platform"] == "telegram"
     

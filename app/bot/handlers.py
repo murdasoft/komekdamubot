@@ -15,9 +15,14 @@ from app.config import get_settings
 from app.ai_client import AIClient
 from app.prompts import get_system_prompt
 from app.offices import detect_city
-from app.bot.text_utils import is_pure_greeting, strip_leading_greeting
+from app.bot.text_utils import strip_leading_greeting
 from app.bot.response_builder import finalize_bot_response
 from app.gemini_client import GeminiClient, get_gemini_client
+from app.bot.stt_normalize import (
+    is_borrower_clarify_message,
+    normalize_stt_borrower_answer,
+    stt_prompt_for_session,
+)
 from app.bot.faq_matcher import try_fast_response
 from app.bot.loan_calc import calculate_loan_payment, format_calculator_result
 from app.bot.knowledge_base import (
@@ -29,7 +34,9 @@ from app.bot.flows import (
     validate_phone, validate_number, validate_yes_no
 )
 from app.bot import content
+from app.bot.content import DEFAULT_LANG
 from app.bot.lang_detect import detect_message_lang
+from app.bot.kazakh_dict import KK_CHARS
 from app.supabase_client import save_session, load_session, log_message, create_lead
 
 logger = logging.getLogger(__name__)
@@ -37,7 +44,9 @@ logger = logging.getLogger(__name__)
 # In-memory session storage (replace with DB for production)
 _sessions: Dict[str, Dict] = defaultdict(lambda: {
     "state": "idle",  # idle, in_flow, handoff
-    "lang": "ru",
+    "lang": DEFAULT_LANG,
+    "lang_locked": False,
+    "city_confirmed": False,
     "product": None,
     "flow_step": None,
     "data": {},
@@ -91,8 +100,6 @@ def detect_small_talk_intent(text: str) -> str | None:
         return None
 
     if _has_business_content(text_lower):
-        return None
-    if not is_pure_greeting(text):
         return None
 
     # «пока ещё не знаю» — не прощание; только явное «пока» в конце или отдельной фразой
@@ -233,6 +240,10 @@ async def _get_session(chat_id: str) -> Dict:
         session["platform"] = "telegram"
     if "context_topic" not in session:
         session["context_topic"] = None
+    if "lang_locked" not in session:
+        session["lang_locked"] = False
+    if "city_confirmed" not in session:
+        session["city_confirmed"] = False
     return session
 
 
@@ -240,7 +251,9 @@ def _reset_session(chat_id: str, platform: str = "telegram"):
     """Reset session to initial state."""
     _sessions[chat_id] = {
         "state": "idle",
-        "lang": "ru",
+        "lang": DEFAULT_LANG,
+        "lang_locked": False,
+        "city_confirmed": False,
         "product": None,
         "flow_step": None,
         "data": {},
@@ -268,10 +281,13 @@ async def _transcribe_voice(
     ai: AIClient | None,
     lang_hint: str | None = None,
     filename: str = "voice.ogg",
+    session: Dict | None = None,
 ) -> tuple[str | None, str]:
     """Transcribe voice: local faster-whisper first; Groq only if GROQ_ENABLED=true."""
     if not audio_bytes:
-        return None, lang_hint or "ru"
+        return None, lang_hint or DEFAULT_LANG
+
+    stt_prompt = stt_prompt_for_session(session)
 
     langs_to_try: list[str | None] = []
     for lang in (lang_hint, "ru", "kk", None):
@@ -288,7 +304,9 @@ async def _transcribe_voice(
         if not ai:
             return None, None
         for lang in langs_to_try:
-            text, err = await ai.transcribe(audio_bytes, language=lang, filename=filename)
+            text, err = await ai.transcribe(
+                audio_bytes, language=lang, filename=filename, prompt=stt_prompt
+            )
             if text:
                 return text, lang or ai.detect_language_simple(text)
             if err:
@@ -305,7 +323,9 @@ async def _transcribe_voice(
             stt_model=settings.groq_stt_model,
         )
         for lang in langs_to_try:
-            text, err = await groq.transcribe(audio_bytes, filename=filename, language=lang)
+            text, err = await groq.transcribe(
+                audio_bytes, filename=filename, language=lang, prompt=stt_prompt
+            )
             if text:
                 return text, lang or groq.detect_language_simple(text)
             if err:
@@ -316,22 +336,22 @@ async def _transcribe_voice(
         text, detected = await _try_groq()
         if text:
             logger.info("Voice via Groq STT (lang=%s): %s", detected, text[:60])
-            return text, detected or "ru"
+            return text, detected or DEFAULT_LANG
         text, detected = await _try_local()
         if text:
             logger.info("Voice via local STT fallback (lang=%s): %s", detected, text[:60])
-            return text, detected or "ru"
+            return text, detected or DEFAULT_LANG
     else:
         text, detected = await _try_local()
         if text:
             logger.info("Voice via local STT (lang=%s): %s", detected, text[:60])
-            return text, detected or "ru"
+            return text, detected or DEFAULT_LANG
         text, detected = await _try_groq()
         if text:
             logger.info("Voice via Groq STT fallback (lang=%s): %s", detected, text[:60])
-            return text, detected or "ru"
+            return text, detected or DEFAULT_LANG
 
-    return None, lang_hint or "ru"
+    return None, lang_hint or DEFAULT_LANG
 
 
 def _build_summary(data: Dict, product_key: str, lang: str) -> str:
@@ -418,7 +438,7 @@ async def _handle_ai_response(
     """Get AI response for free-text queries."""
     if not ai:
         return None
-    lang = session.get("lang", "ru")
+    lang = session.get("lang", DEFAULT_LANG)
     system_prompt = get_system_prompt(lang)
     
     # Build context from knowledge base
@@ -447,15 +467,31 @@ _detect_language = _detect_lang  # alias for tests
 
 
 def _update_session_lang(text: str, session: Dict) -> str:
-    """kk только при явных признаках; русский текст → сразу ru."""
-    detected = detect_message_lang(text)
-    if detected == "kk":
-        session["lang"] = "kk"
-    else:
-        session["lang"] = "ru"
+    """Язык ответа: kk по умолчанию; ru только после явного выбора через 99."""
+    _ = text
+    if session.get("lang_locked"):
+        return session.get("lang", DEFAULT_LANG)
+    session["lang"] = DEFAULT_LANG
     session.pop("lang_streak_candidate", None)
     session.pop("lang_streak", None)
     return session["lang"]
+
+
+def _update_session_intent(text: str, session: Dict) -> None:
+  """Запомнить продукт для уточняющих вопросов («а процент?», «сколько лет?»)."""
+    from app.bot.knowledge_base import (
+        detect_intent,
+        is_ip_credit_question,
+        is_personal_credit_question,
+    )
+
+    intent = detect_intent(text, session)
+    if intent:
+        session["last_intent"] = intent
+    elif is_personal_credit_question(text, session):
+        session["last_intent"] = "personal_credit"
+    elif is_ip_credit_question(text):
+        session["last_intent"] = "business_credit"
 
 
 async def _get_bot_reply(
@@ -465,22 +501,44 @@ async def _get_bot_reply(
 ) -> str | None:
     """FAQ без LLM, иначе Together/Groq."""
     settings = get_settings()
+    text = normalize_stt_borrower_answer(text, session)
     lang = _update_session_lang(text, session)
     found_city = detect_city(text)
     if found_city:
         session["city"] = found_city
+        session["city_confirmed"] = True
     core = strip_leading_greeting(text)
     if settings.fast_faq_enabled:
         platform = session.get("platform", "telegram")
-        fast = try_fast_response(core, lang, session.get("city"), platform)
+        fast = try_fast_response(
+            core,
+            lang,
+            session.get("city"),
+            platform,
+            city_confirmed=session.get("city_confirmed", False),
+            session=session,
+        )
         if fast:
             logger.info("Fast FAQ hit for: %s", core[:40])
+            _update_session_intent(core, session)
+            if is_borrower_clarify_message(fast):
+                session["awaiting_borrower_type"] = True
+            elif session.get("awaiting_borrower_type"):
+                from app.bot.knowledge_base import detect_business_entity
+
+                if detect_business_entity(core):
+                    session.pop("awaiting_borrower_type", None)
             return fast
     raw = await _handle_ai_response_with_context(text, session, ai)
     if not raw:
         return None
     return finalize_bot_response(
-        raw, text, lang, session.get("city"), session.get("platform", "telegram")
+        raw,
+        text,
+        lang,
+        session.get("city"),
+        session.get("platform", "telegram"),
+        city_confirmed=session.get("city_confirmed", False),
     )
 
 
@@ -492,21 +550,27 @@ async def _handle_ai_response_with_context(
     """Get AI response with conversation history for context understanding."""
     if not ai:
         return None
-    lang = session.get("lang", "ru")
+    lang = session.get("lang", DEFAULT_LANG)
     found_city = detect_city(text)
     if found_city:
         session["city"] = found_city
+        session["city_confirmed"] = True
     city = session.get("city")
     system_prompt = get_system_prompt(lang, city=city)
 
-    intent = detect_intent(text)
+    intent = detect_intent(text, session)
     if intent:
         info = get_product_info(intent, lang)
         if info:
-            context = (
-                f"Продукт: {info['name']}. {info['description']}. "
-                f"Условия: {info['conditions'][:400]}"
-            )
+            if intent == "personal_credit":
+                from app.bot.knowledge_base import format_personal_credit_answer
+
+                context = format_personal_credit_answer(lang, text)
+            else:
+                context = (
+                    f"Продукт: {info['name']}. {info['description']}. "
+                    f"Условия: {info['conditions'][:400]}"
+                )
         else:
             context = ""
     else:
@@ -581,7 +645,7 @@ async def _process_flow_step(
     """
     product_key = session.get("product")
     flow_step_key = session.get("flow_step")
-    lang = session.get("lang", "ru")
+    lang = session.get("lang", DEFAULT_LANG)
     
     if not product_key or not flow_step_key:
         return False
@@ -634,10 +698,16 @@ async def _process_flow_step(
     
     # Store validated data
     session["data"][step.key] = validated_value
+
+    if step.key == "city":
+        c = detect_city(str(validated_value)) or detect_city(text)
+        if c:
+            session["city"] = c
+            session["city_confirmed"] = True
     
     # Check for payment delays - reject if yes
     if step.key == "has_delays" and validated_value == "да":
-        lang = session.get("lang", "ru")
+        lang = session.get("lang", DEFAULT_LANG)
         reject_msg = (
             "❌ *К сожалению, мы не можем выдать кредит при наличии открытых просрочек.*\n\n"
             "Пожалуйста, закройте просрочки и обратитесь снова.\n\n"
@@ -676,7 +746,7 @@ async def _finish_flow(
 ):
     """Complete flow and send lead to manager."""
     product_key = session.get("product", "unknown")
-    lang = session.get("lang", "ru")
+    lang = session.get("lang", DEFAULT_LANG)
     data = session.get("data", {})
     platform = session.get("platform", "telegram")
     
@@ -688,6 +758,8 @@ async def _finish_flow(
     
     # Notify manager
     await _notify_manager(summary, chat_id, platform)
+
+    await create_lead(chat_id, platform, product_key, data, lang)
     
     # Thank you message
     thanks_msg = (
@@ -717,7 +789,7 @@ async def _start_product_flow(
         logger.error(f"No flow found for product: {product_key}")
         return
     
-    lang = session.get("lang", "ru")
+    lang = session.get("lang", DEFAULT_LANG)
     first_step_key = get_first_step(flow)
     if not first_step_key:
         return
@@ -725,19 +797,24 @@ async def _start_product_flow(
     session["state"] = "in_flow"
     session["product"] = product_key
     session["flow_step"] = first_step_key
-    
+    session["last_intent"] = product_key
+
     first_step = flow[first_step_key]
     question = first_step.question_ru if lang == "ru" else first_step.question_kk
-    
-    # Show product info first
-    product_info = get_product_info(product_key, lang)
-    if product_info:
-        intro = (
-            f"*{product_info['name']}*\n\n"
-            f"{product_info['description']}\n\n"
-            f"📋 *Условия / Шарттар:*\n{product_info['conditions']}"
-        )
-        await send_message_func(intro)
+
+    if product_key == "personal_credit":
+        from app.bot.knowledge_base import format_personal_credit_answer
+
+        await send_message_func(format_personal_credit_answer(lang))
+    else:
+        product_info = get_product_info(product_key, lang)
+        if product_info:
+            intro = (
+                f"*{product_info['name']}*\n\n"
+                f"{product_info['description']}\n\n"
+                f"📋 *Условия / Шарттар:*\n{product_info['conditions']}"
+            )
+            await send_message_func(intro)
     
     await send_message_func(question)
 
@@ -808,6 +885,7 @@ async def handle_telegram_update(
         if session.get("state") == "selecting_lang":
             selected_lang = "kk" if text.strip() == "1" else "ru"
             session["lang"] = selected_lang
+            session["lang_locked"] = True
             session["state"] = "idle"
             await save_session(chat_id, session)
             
@@ -820,7 +898,7 @@ async def handle_telegram_update(
     session_early = await _get_session(chat_id)
     if session_early.get("state") == "selecting_lang" and text and text.strip() not in ["1", "2"]:
         t = text.strip()
-        session_early["lang"] = "kk" if any(c in _KK_CHARS for c in t.lower()) else "ru"
+        session_early["lang"] = DEFAULT_LANG
         session_early["state"] = "idle"
         await save_session(chat_id, session_early)
         logger.info("Auto language %s from text, processing: %s", session_early["lang"], text[:40])
@@ -855,12 +933,12 @@ async def handle_telegram_update(
             session["handoff_until"] = 0
             await tg_client.send_message(
                 chat_id,
-                content.HANDOFF_RELEASED_RU if session.get("lang", "ru") == "ru" else content.HANDOFF_RELEASED_KK
+                content.HANDOFF_RELEASED_RU if session.get("lang", DEFAULT_LANG) == "ru" else content.HANDOFF_RELEASED_KK
             )
             return
         # Still answer questions via AI even in handoff
         if text:
-            lang_h = session.get("lang", "ru")
+            lang_h = session.get("lang", DEFAULT_LANG)
             ai_response = await _handle_ai_response_with_context(text.strip(), session, ai)
             if ai_response:
                 await tg_client.send_message(chat_id, ai_response)
@@ -883,7 +961,7 @@ async def handle_telegram_update(
             )
             return
 
-        lang_ui = session.get("lang", "ru")
+        lang_ui = session.get("lang", DEFAULT_LANG)
         await tg_client.send_message(
             chat_id,
             "🎤 Слушаю голосовое, секунду..."
@@ -903,21 +981,23 @@ async def handle_telegram_update(
                     audio_bytes = r.content
 
                 transcribed, detected_lang = await _transcribe_voice(
-                    audio_bytes, ai, session.get("lang") if session.get("lang") in ("ru", "kk") else "ru"
+                    audio_bytes,
+                    ai,
+                    session.get("lang")
+                    if session.get("lang") in ("ru", "kk")
+                    else DEFAULT_LANG,
+                    session=session,
                 )
 
                 logger.info("Voice result chat=%s: lang=%s text=%s", chat_id, detected_lang, transcribed)
 
                 if transcribed and transcribed.strip():
-                    # Язык от Whisper/Groq; словарь только если есть казахские буквы
-                    if any(c in _KK_CHARS for c in transcribed.lower()):
+                    if not session.get("lang_locked") and any(
+                        c in KK_CHARS for c in transcribed.lower()
+                    ):
                         session["lang"] = "kk"
-                    elif detected_lang in ("ru", "kk"):
-                        session["lang"] = detected_lang
-                    elif session.get("lang") not in ("ru", "kk"):
-                        session["lang"] = "ru"
                     session["state"] = "idle"
-                    text = transcribed.strip()
+                    text = normalize_stt_borrower_answer(transcribed.strip(), session)
                     logger.info("Voice OK: lang=%s text=%s", session["lang"], text[:50])
                 elif transcribed:
                     await tg_client.send_message(chat_id, "Не расслышал. Повторите, пожалуйста.")
@@ -933,7 +1013,7 @@ async def handle_telegram_update(
         return
     
     text_stripped = text.strip()
-    lang = session.get("lang", "ru")
+    lang = session.get("lang", DEFAULT_LANG)
     
     # Handle /start or menu return
     if text_stripped in ["/start", "/menu", "меню", "главное меню", "басты мәзір"]:
@@ -991,7 +1071,7 @@ async def handle_telegram_update(
     # Check if user asked for menu (any platform)
     menu_keywords = ["меню", "menu", "мәзір", "список", "варианты", "нұсқалар", "/menu"]
     if any(w in text_stripped.lower() for w in menu_keywords) and session.get("state") == "idle":
-        lang = session.get("lang", "ru")
+        lang = session.get("lang", DEFAULT_LANG)
         await tg_client.send_message(chat_id, content.get_greeting(lang, "telegram"))
         return
 
@@ -1134,7 +1214,7 @@ async def handle_whatsapp_update(
     if sender_name:
         session["contact_name"] = sender_name
 
-    lang = session.get("lang", "ru")
+    lang = session.get("lang", DEFAULT_LANG)
 
     async def send_wa_with_hint(message: str, reply_lang: str | None = None):
         use_lang = reply_lang or session.get("lang", lang)
@@ -1143,7 +1223,7 @@ async def handle_whatsapp_update(
     # Голосовое (audioMessage / voiceMessage)
     if is_voice_message(body):
         settings = get_settings()
-        lang_ui = session.get("lang", "ru")
+        lang_ui = session.get("lang", DEFAULT_LANG)
         if not settings.is_ai_configured:
             await send_wa_with_hint(
                 "🎤 Дауыстық хабарлама уақытша жоқ. Мәтінмен жазыңыз."
@@ -1160,35 +1240,47 @@ async def handle_whatsapp_update(
 
         id_message = body.get("idMessage", "")
         media_url = media_url or extract_media_download_url(body)
-        audio_bytes = await wa_client.download_incoming_file(
-            chat_id, id_message, media_url
-        )
-        if not audio_bytes:
-            logger.error("WA voice download failed chat=%s msg=%s", chat_id, id_message)
-            await send_wa_with_hint(
-                "Файлды жүктей алмадым. Қайта жіберіңіз немесе мәтінмен жазыңыз."
-                if lang_ui == "kk"
-                else "Не удалось загрузить аудио. Отправьте ещё раз или напишите текстом."
+        try:
+            logger.info("WA voice start chat=%s msg=%s", chat_id, id_message)
+            audio_bytes = await wa_client.download_incoming_file(
+                chat_id, id_message, media_url
             )
-            return
+            if not audio_bytes:
+                logger.error("WA voice download failed chat=%s msg=%s", chat_id, id_message)
+                await send_wa_with_hint(
+                    "Файлды жүктей алмадым. Қайта жіберіңіз немесе мәтінмен жазыңыз."
+                    if lang_ui == "kk"
+                    else "Не удалось загрузить аудио. Отправьте ещё раз или напишите текстом."
+                )
+                return
 
-        fname = get_audio_filename(body)
-        transcribed, detected_lang = await _transcribe_voice(
-            audio_bytes, ai, session.get("lang"), filename=fname
-        )
-        if transcribed and transcribed.strip():
-            if any(c in _KK_CHARS for c in transcribed.lower()):
-                session["lang"] = "kk"
-            elif detected_lang in ("ru", "kk"):
-                session["lang"] = detected_lang
-            text = transcribed.strip()
-            await save_session(chat_id, session)
-            logger.info("WA voice OK chat=%s: %s", chat_id, text[:60])
-        else:
+            fname = get_audio_filename(body)
+            logger.info("WA voice STT start chat=%s bytes=%s", chat_id, len(audio_bytes))
+            transcribed, detected_lang = await _transcribe_voice(
+                audio_bytes, ai, session.get("lang"), filename=fname, session=session
+            )
+            if transcribed and transcribed.strip():
+                if not session.get("lang_locked") and any(
+                    c in KK_CHARS for c in transcribed.lower()
+                ):
+                    session["lang"] = "kk"
+                text = normalize_stt_borrower_answer(transcribed.strip(), session)
+                await save_session(chat_id, session)
+                logger.info("WA voice OK chat=%s: %s", chat_id, text[:60])
+            else:
+                logger.warning("WA voice STT empty chat=%s", chat_id)
+                await send_wa_with_hint(
+                    content.LANG_DETECT_FAILED_KK
+                    if lang_ui == "kk"
+                    else "Не расслышал. Повторите голосом или напишите текстом."
+                )
+                return
+        except Exception:
+            logger.exception("WA voice pipeline failed chat=%s msg=%s", chat_id, id_message)
             await send_wa_with_hint(
-                content.LANG_DETECT_FAILED_KK
+                "Дауыстық хабарламада қате. Қайта жіберіңіз немесе мәтінмен жазыңыз."
                 if lang_ui == "kk"
-                else "Не расслышал. Повторите голосом или напишите текстом."
+                else "Ошибка обработки голосового. Отправьте ещё раз или напишите текстом."
             )
             return
 
@@ -1196,16 +1288,19 @@ async def handle_whatsapp_update(
         return
 
     text_stripped = text.strip()
+    lang = session.get("lang", DEFAULT_LANG)
+    platform = session.get("platform", "whatsapp")
+    await log_message(chat_id, platform, "user", text_stripped, lang)
 
     found_city = detect_city(text_stripped)
     if found_city:
         session["city"] = found_city
-
-    lang = session.get("lang", "ru")
+        session["city_confirmed"] = True
 
     # Язык: 1 — KK, 2 — RU (как в Telegram)
     if text_stripped in ["1", "2"] and session.get("state") == "selecting_lang":
         session["lang"] = "kk" if text_stripped == "1" else "ru"
+        session["lang_locked"] = True
         session["state"] = "idle"
         await save_session(chat_id, session)
         sl = session["lang"]
@@ -1215,15 +1310,16 @@ async def handle_whatsapp_update(
         return
 
     if session.get("state") == "selecting_lang" and text_stripped not in ["1", "2"]:
-        session["lang"] = detect_message_lang(text_stripped)
+        session["lang"] = DEFAULT_LANG
         session["state"] = "idle"
         await save_session(chat_id, session)
-        lang = session["lang"]
-    
+        lang = DEFAULT_LANG
+
     # Handle /start or menu commands
     if text_stripped in ["/start", "start", "меню", "мәзір", "menu"]:
         _reset_session(chat_id, "whatsapp")
-        session["lang"] = lang
+        session = await _get_session(chat_id)
+        lang = session.get("lang", DEFAULT_LANG)
         await send_wa_with_hint(
             content.get_greeting(lang, "whatsapp") + "\n\n" + content.get_wa_menu(lang), lang
         )
@@ -1242,10 +1338,10 @@ async def handle_whatsapp_update(
         session["state"] = "selecting_lang"
         await save_session(chat_id, session)
         wa_lang_menu = (
-            "🌐 *Выберите язык / Тілді таңдаңыз:*\n\n"
-            "1️⃣ Русский\n"
-            "2️⃣ Қазақша\n\n"
-            "*Напишите цифру 1 или 2*"
+            "🌐 *Тілді таңдаңыз / Выберите язык:*\n\n"
+            "1️⃣ Қазақша\n"
+            "2️⃣ Русский\n\n"
+            "*1 немесе 2 санын жазыңыз / Напишите цифру 1 или 2*"
         )
         await send_wa_with_hint(wa_lang_menu)
         return
@@ -1332,6 +1428,7 @@ async def handle_whatsapp_update(
             "text": calc_result,
             "timestamp": time.time()
         })
+        await log_message(chat_id, platform, "assistant", calc_result, lang)
         await save_session(chat_id, session)
         return
     
@@ -1352,13 +1449,14 @@ async def handle_whatsapp_update(
             "timestamp": time.time()
         })
         await send_wa_with_hint(clean_response)
+        await log_message(chat_id, platform, "assistant", clean_response, lang)
         if notify_manager:
             await _notify_manager(
                 f"\u2753 *Клиент задал вопрос вне базы знаний*\nВопрос: {text_stripped}",
                 chat_id, "whatsapp", session=session
             )
     else:
-        await send_wa_with_hint(
-            content.get_ai_fallback_message(lang, session.get("city"), "whatsapp")
-        )
+        fallback = content.get_ai_fallback_message(lang, session.get("city"), "whatsapp")
+        await send_wa_with_hint(fallback)
+        await log_message(chat_id, platform, "assistant", fallback, lang)
     await save_session(chat_id, session)

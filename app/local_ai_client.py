@@ -67,7 +67,9 @@ class LocalAIClient:
         audio_bytes: bytes,
         filename: str = "audio.ogg",
         language: str | None = None,
+        prompt: str | None = None,
     ) -> tuple[str | None, str | None]:
+        _ = prompt
         url = f"{self.whisper_url}/transcribe"
         files = {"file": (filename, io.BytesIO(audio_bytes), "application/octet-stream")}
         data = {}

@@ -62,12 +62,15 @@ class TogetherClient:
         audio_bytes: bytes,
         filename: str = "audio.ogg",
         language: str | None = None,
+        prompt: str | None = None,
     ) -> tuple[str | None, str | None]:
         url = f"{TOGETHER_API_BASE}/audio/transcriptions"
         files = {"file": (filename, io.BytesIO(audio_bytes), "application/octet-stream")}
         data = {"model": self.stt_model}
         if language:
             data["language"] = language
+        if prompt:
+            data["prompt"] = prompt
         headers = {"Authorization": f"Bearer {self.api_key}"}
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:

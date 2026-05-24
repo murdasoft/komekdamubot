@@ -27,27 +27,42 @@ def verify_telegram_webhook(
     return True
 
 
+def _extract_bearer_token(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    header = value.strip()
+    if header.lower().startswith("bearer "):
+        return header[7:].strip()
+    if header.lower().startswith("basic "):
+        return header[6:].strip()
+    return header
+
+
 def verify_whatsapp_webhook(
     webhook_token: str,
-    authorization_header: Optional[str]
+    authorization_header: Optional[str],
+    x_webhook_token: Optional[str] = None,
 ) -> bool:
     """
     Verify WhatsApp (Green API) webhook authorization.
+    Green API sends webhookUrlToken as Authorization: Bearer <token>.
     """
-    if not authorization_header:
-        logger.warning("Missing authorization header")
-        return False
-    
-    # Green API: по умолчанию Authorization: Bearer <token> (см. webhookUrlToken в консоли)
-    header = authorization_header.strip()
     token = webhook_token.strip()
-    if header.lower().startswith("bearer "):
-        header = header[7:].strip()
-    elif header.lower().startswith("basic "):
-        header = header[6:].strip()
-    if header == token or authorization_header.strip() == f"Bearer {token}":
+    if not token or token == "changeme":
         return True
-    logger.warning("Invalid authorization header: %s...", authorization_header[:24])
+
+    candidates = [
+        _extract_bearer_token(authorization_header),
+        (x_webhook_token or "").strip() or None,
+    ]
+    for candidate in candidates:
+        if candidate and candidate == token:
+            return True
+
+    if authorization_header:
+        logger.warning("Invalid authorization header: %s...", authorization_header[:24])
+    else:
+        logger.warning("Missing authorization header")
     return False
 
 

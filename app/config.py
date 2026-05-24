@@ -14,6 +14,14 @@ def _getenv(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
+def _first_env(*keys: str) -> str:
+    for key in keys:
+        value = os.getenv(key, "").strip()
+        if value:
+            return value
+    return ""
+
+
 @dataclass(frozen=True)
 class Settings:
     # Telegram Bot
@@ -84,6 +92,21 @@ class Settings:
     order_abandon_nudge_seconds: int = field(default_factory=lambda: int(_getenv("ORDER_ABANDON_NUDGE_SECONDS", "1800")))
     handoff_timeout_hours: int = field(default_factory=lambda: int(_getenv("HANDOFF_TIMEOUT_HOURS", "24")))
     
+    # Supabase (clients, sessions, messages, leads)
+    supabase_url: str = field(
+        default_factory=lambda: _first_env(
+            "SUPABASE_URL",
+            "NEXT_PUBLIC_komek_SUPABASE_URL",
+            "NEXT_PUBLIC_SUPABASE_URL",
+        )
+    )
+    supabase_service_role_key: str = field(
+        default_factory=lambda: _first_env(
+            "SUPABASE_SERVICE_ROLE_KEY",
+            "komek_SUPABASE_SERVICE_ROLE_KEY",
+        )
+    )
+
     # URLs
     webhook_base_url: str = field(default_factory=lambda: _getenv("WEBHOOK_BASE_URL", ""))
     
@@ -102,6 +125,10 @@ class Settings:
     @property
     def is_whatsapp_configured(self) -> bool:
         return bool(self.green_api_instance_id and self.green_api_token)
+
+    @property
+    def is_supabase_configured(self) -> bool:
+        return bool(self.supabase_url and self.supabase_service_role_key)
     
     @property
     def is_groq_configured(self) -> bool:

@@ -65,6 +65,7 @@ class GroqClient:
         audio_bytes: bytes,
         filename: str = "audio.ogg",
         language: str | None = None,  # "ru", "kk", or None for auto
+        prompt: str | None = None,
     ) -> tuple[str | None, str | None]:
         """
         Transcribe audio using Groq Whisper.
@@ -81,8 +82,8 @@ class GroqClient:
         }
         if language:
             data["language"] = language
-        
-        # Use multipart form data
+        if prompt:
+            data["prompt"] = prompt
         headers = {"Authorization": f"Bearer {self.api_key}"}
         
         try:

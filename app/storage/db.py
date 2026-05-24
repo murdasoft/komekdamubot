@@ -25,7 +25,7 @@ class SessionStore:
         if chat_id not in _sessions:
             _sessions[chat_id] = {
                 "state": "idle",
-                "lang": "ru",
+                "lang": "kk",
                 "product": None,
                 "flow_step": None,
                 "data": {},

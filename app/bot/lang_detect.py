@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from app.bot.content import DEFAULT_LANG
 from app.bot.kazakh_dict import (
     KK_CHARS,
     ALL_KK_WORDS,
@@ -37,11 +38,10 @@ _RU_PHRASES = (
 
 def detect_message_lang(text: str) -> str:
     """
-    kk — только при казахских буквах, фразах или явно казахских словах.
-    Иначе ru (в т.ч. «здравствуйте, кредит 1 млн»).
+    kk — по умолчанию; ru — при явных русских маркерах.
     """
     if not text or not text.strip():
-        return "ru"
+        return DEFAULT_LANG
 
     lower = text.lower()
 
@@ -64,4 +64,4 @@ def detect_message_lang(text: str) -> str:
     if kk_only & ALL_KK_WORDS:
         return "kk"
 
-    return "ru"
+    return DEFAULT_LANG

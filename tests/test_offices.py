@@ -47,7 +47,17 @@ def test_attach_contacts_one_city_only():
     assert "Астана" not in ans
 
 
-def test_faq_with_city_session():
+def test_faq_without_confirmed_city_asks():
     clear_offices_cache()
     r = try_fast_response("даму для ип", "kk", session_city="shymkent")
+    assert r
+    assert "Шымкент" not in r
+    assert "Қай" in r or "?" in r
+
+
+def test_faq_with_confirmed_city_shows_one_office():
+    clear_offices_cache()
+    r = try_fast_response(
+        "даму для ип", "kk", session_city="shymkent", city_confirmed=True
+    )
     assert r and r.count("📍") == 1 and "Шымкент" in r

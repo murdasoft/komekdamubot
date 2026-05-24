@@ -3,6 +3,14 @@ UI Content for KOMEK DAMU bot.
 Russian and Kazakh languages supported.
 """
 
+# Қазақша — негізгі тіл; орысша — 99 арқылы таңдау
+DEFAULT_LANG = "kk"
+
+WA_NAV_HINT = (
+    "0 — Назад в главное меню / Бас мәзірге қайту\n"
+    "99 — Сменить язык / Тілді ауыстыру"
+)
+
 # Platform selection
 PLATFORM_PROMPT_RU = "📱 *Выберите мессенджер / Мессенджерді таңдаңыз:*"
 PLATFORM_PROMPT_KK = "📱 *Выберите мессенджер / Мессенджерді таңдаңыз:*"
@@ -204,18 +212,18 @@ WA_MENU_KK = (
 
 WA_MORTGAGE_MENU_RU = (
     "🏠 *Ипотека*\n\n"
-    "1️⃣ Госпрограмма (2-9%)\n"
-    "2️⃣ Обычная ипотека\n"
+    "1️⃣ Госпрограмма (2–9%, до 25 лет)\n"
+    "2️⃣ Партнёрская (15–22%, до 25 лет)\n"
     "0️⃣ Назад в главное меню\n\n"
-    "Напишите цифру:"
+    "Консультация только в офисе. Напишите цифру:"
 )
 
 WA_MORTGAGE_MENU_KK = (
     "🏠 Ипотека мәзірі\n\n"
-    "1️⃣ Әкіметтік ипотека\n"
-    "2️⃣ Стандартты ипотека\n"
+    "1️⃣ Мемлекеттік (2–9%, 25 жылға дейін)\n"
+    "2️⃣ Серіктес (15–22%, 25 жылға дейін)\n"
     "0️⃣ Негізгі мәзірге оралу\n\n"
-    "Санды жазыңыз:"
+    "Кеңес тек офисте. Санды жазыңыз:"
 )
 
 WA_INTRO_RU = (
@@ -302,7 +310,11 @@ def get_unknown_message(lang: str = "ru") -> str:
     return UNKNOWN_RU if lang == "ru" else UNKNOWN_KK
 
 
-def add_wa_back_hint(message: str, lang: str = "ru") -> str:
-    """Add '0 - Назад' and '99 - Язык' hints to WhatsApp messages."""
-    hint = "0 — Назад в главное меню\n99 — Сменить язык" if lang == "ru" else "0 — Негізгі мәзірге оралу\n99 — Тілді ауыстыру"
-    return f"{message}\n\n{hint}"
+def get_wa_menu(lang: str = DEFAULT_LANG) -> str:
+    return WA_MENU_RU if lang == "ru" else WA_MENU_KK
+
+
+def add_wa_back_hint(message: str, lang: str = DEFAULT_LANG) -> str:
+    """Добавить подсказки 0/99 на двух языках (lang — только для текста ответа)."""
+    _ = lang  # ответ уже на выбранном языке; навигация всегда двуязычная
+    return f"{message}\n\n{WA_NAV_HINT}"

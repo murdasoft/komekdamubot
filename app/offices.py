@@ -61,6 +61,21 @@ def resolve_city(text: str, session_city: str | None = None) -> str | None:
     return detect_city(text) or session_city
 
 
+def city_for_contacts(
+    text: str,
+    session_city: str | None = None,
+    *,
+    city_confirmed: bool = False,
+) -> str | None:
+    """Город для офиса: только из текущего сообщения или подтверждённый в сессии."""
+    found = detect_city(text)
+    if found:
+        return found
+    if city_confirmed and session_city:
+        return session_city
+    return None
+
+
 def _load_from_supabase() -> dict:
     from app.supabase_client import get_supabase
 

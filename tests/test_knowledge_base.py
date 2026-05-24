@@ -23,6 +23,8 @@ class TestIntentDetection:
         assert detect_intent("кредит на бизнес") == "business_credit"
         assert detect_intent("ТОО кредит") == "business_credit"
         assert detect_intent("кредит на бизнес для ип") == "business_credit"
+        assert detect_intent("процент по кредиту на ип") == "business_credit"
+        assert detect_intent("ипотека") == "mortgage_standard"
     
     def test_detect_damu_ru(self):
         """Test detecting DAMU program intent in Russian."""
@@ -62,7 +64,7 @@ class TestProductInfo:
         
         assert info is not None
         assert info["name"] == "Кредит для физического лица"
-        assert "Ставка" in info["conditions"]
+        assert "Сумма" in info["conditions"] or "25" in info["conditions"]
         assert len(info["docs"]) > 0
     
     def test_get_personal_credit_kk(self):
@@ -71,7 +73,7 @@ class TestProductInfo:
         
         assert info is not None
         assert info["name"] == "Жеке несие"
-        assert "Мөлшерлеме" in info["conditions"]
+        assert "Сома" in info["conditions"] or "25" in info["conditions"]
     
     def test_get_damu_info(self):
         """Test getting DAMU program info."""

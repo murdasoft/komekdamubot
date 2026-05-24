@@ -11,3 +11,8 @@ def test_kazakh_with_special_chars():
 
 def test_russian_credit_word_alone():
     assert detect_message_lang("нужен кредит") == "ru"
+
+
+def test_ambiguous_defaults_kazakh():
+    assert detect_message_lang("ипотека") == "kk"
+    assert detect_message_lang("") == "kk"

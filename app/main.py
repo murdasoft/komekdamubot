@@ -116,6 +116,7 @@ async def root():
         "ai_provider": settings.effective_ai_provider,
         "groq_configured": settings.is_groq_configured,
         "bitrix_configured": bool(settings.bitrix24_webhook_url),
+        "supabase_configured": settings.is_supabase_configured,
     }
 
 
@@ -128,6 +129,7 @@ async def health():
         "ai_provider": get_settings().effective_ai_provider,
         "telegram": tg_client is not None,
         "whatsapp": wa_client is not None,
+        "supabase": get_settings().is_supabase_configured,
     }
 
 
@@ -139,24 +141,28 @@ async def telegram_webhook(
     """Handle Telegram webhook updates."""
     await ensure_clients()
     settings = get_settings()
-    
-    # Rate limiting check
-    from app.rate_limiter import is_rate_limited
-    is_limited, reason = is_rate_limited("telegram_webhook")
-    if is_limited:
-        logger.warning(f"Rate limit exceeded for Telegram webhook: {reason}")
-        raise HTTPException(status_code=429, detail=reason)
-    
-    # Verify secret token (optional security)
+
     if settings.telegram_webhook_secret and x_telegram_bot_api_secret_token:
         if x_telegram_bot_api_secret_token != settings.telegram_webhook_secret:
             raise HTTPException(status_code=401, detail="Invalid secret")
-    
+
     if not tg_client:
         raise HTTPException(status_code=503, detail="Telegram not configured")
-    
+
     body = await request.json()
     logger.debug(f"Telegram update: {body}")
+
+    chat_id = "telegram_webhook"
+    msg = body.get("message") or body.get("edited_message") or body.get("callback_query", {}).get("message")
+    if msg and msg.get("chat", {}).get("id"):
+        chat_id = str(msg["chat"]["id"])
+
+    from app.rate_limiter import is_rate_limited
+
+    is_limited, reason = is_rate_limited(chat_id)
+    if is_limited:
+        logger.warning("Rate limit for Telegram %s: %s", chat_id, reason)
+        return Response(status_code=200)
     
     try:
         await handle_telegram_update(body, tg_client, ai_client)
@@ -165,6 +171,13 @@ async def telegram_webhook(
         # Still return 200 to avoid retries
     
     return Response(status_code=200)
+
+
+_INCOMING_WA_WEBHOOKS = frozenset({
+    "incomingMessageReceived",
+    "incomingMessageText",
+    "incomingMessageVoice",
+})
 
 
 @app.post("/webhook/whatsapp")
@@ -176,45 +189,48 @@ async def whatsapp_webhook(
     """Handle WhatsApp (Green API) webhook updates."""
     await ensure_clients()
     settings = get_settings()
-    
-    # Rate limiting check
-    from app.rate_limiter import is_rate_limited
-    is_limited, reason = is_rate_limited("whatsapp_webhook")
-    if is_limited:
-        logger.warning(f"Rate limit exceeded for WhatsApp webhook: {reason}")
-        raise HTTPException(status_code=429, detail=reason)
-    
-    # Security: verify webhook token (Green API uses Authorization header)
-    if settings.green_api_webhook_token:
-        from app.webhook_security import verify_whatsapp_webhook
-        if not verify_whatsapp_webhook(settings.green_api_webhook_token, authorization):
-            logger.warning(f"Invalid authorization: {authorization[:20] if authorization else 'None'}...")
-            raise HTTPException(status_code=401, detail="Unauthorized")
-    
+
+    body = await request.json()
+    msg_type = body.get("typeWebhook", "")
+
+    # Status/delivery webhooks must ACK immediately — they must not hit auth/rate limits.
+    if msg_type not in _INCOMING_WA_WEBHOOKS:
+        return Response(status_code=200)
+
     if not wa_client:
         raise HTTPException(status_code=503, detail="WhatsApp not configured")
-    
-    body = await request.json()
-    logger.info(f"WhatsApp body: {body}")
-    
-    # Extract sender info for debugging
+
+    from app.webhook_security import verify_whatsapp_webhook
+
+    if not verify_whatsapp_webhook(
+        settings.green_api_webhook_token,
+        authorization,
+        x_webhook_token,
+    ):
+        logger.warning(
+            "Invalid authorization: %s...",
+            authorization[:20] if authorization else "None",
+        )
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
     sender_data = body.get("senderData", {})
     chat_id = sender_data.get("chatId", "unknown")
     sender_name = sender_data.get("senderName", "unknown")
-    logger.info(f"Message from: {chat_id} ({sender_name})")
-    
-    # Green API sends different event types
-    # We only care about incoming messages
-    msg_type = body.get("typeWebhook", "")
-    
-    if msg_type not in ["incomingMessageReceived", "incomingMessageText", "incomingMessageVoice"]:
+    logger.info("WhatsApp incoming from %s (%s), type=%s", chat_id, sender_name, msg_type)
+
+    from app.rate_limiter import is_rate_limited
+
+    is_limited, reason = is_rate_limited(chat_id)
+    if is_limited:
+        # Green API retries non-2xx and queues webhooks — always ACK, skip processing.
+        logger.warning("Rate limit for %s: %s", chat_id, reason)
         return Response(status_code=200)
-    
+
     try:
         await handle_whatsapp_update(body, wa_client, ai_client)
-    except Exception as e:
+    except Exception:
         logger.exception("Error handling WhatsApp update")
-    
+
     return Response(status_code=200)
 
 

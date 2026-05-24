@@ -97,10 +97,10 @@ COMPANY_OFFER_RU = (
 
 
 def mono(text: str, platform: Platform) -> str:
-    """Моноширинный текст — удобно копировать."""
-    t = text.replace("`", "'")
+    """Телефон/адрес — на WhatsApp без backticks (ломают переносы)."""
+    t = text.replace("`", "'").strip()
     if platform == "whatsapp":
-        return f"```{t}```"
+        return t
     return f"`{t}`"
 
 
@@ -119,12 +119,19 @@ def format_office_city(city_key: str, lang: str, platform: Platform = "telegram"
         return ""
     name = o["name_kk"] if lang == "kk" else o["name_ru"]
     addr = (o["address_kk"] if lang == "kk" else o["address_ru"]).strip()
-    phone = mono(o["phone_display"], platform)
+    phone = o["phone_display"]
+    if platform == "whatsapp":
+        lines = [f"📍 *{name}*"]
+        if addr:
+            lines.append(addr)
+        lines.append(f"📞 {phone}")
+        return "\n".join(lines)
+    phone_md = mono(phone, platform)
     if platform == "telegram":
         tel = o["phone_tel"]
         phone_btn = f"[{o['phone_display']}](tel:{tel})"
     else:
-        phone_btn = phone
+        phone_btn = phone_md
     if addr:
         return f"📍 {name}: {mono(addr, platform)}\n📞 {phone_btn}"
     return f"📍 {name}: 📞 {phone_btn}"
@@ -157,6 +164,28 @@ def format_offices_block(
 
 def format_welcome(lang: str, platform: Platform = "telegram") -> str:
     """Приветствие с условиями KOMEK DAMU и офисами."""
+    if platform == "whatsapp":
+        greet = "Сәлеметсіз бе!" if lang == "kk" else "Здравствуйте!"
+        city_q = (
+            "❓ *Қай қаладасыз?*"
+            if lang == "kk"
+            else "❓ *Из какого вы города?*"
+        )
+        lines = [
+            greet,
+            "",
+            city_q,
+            "",
+            format_offices_block(lang, platform=platform, with_header=False),
+            "",
+            WORK_HOURS_KK if lang == "kk" else WORK_HOURS_RU,
+            "",
+            "💬 Сұрағыңызды жазыңыз"
+            if lang == "kk"
+            else "💬 Напишите ваш вопрос",
+        ]
+        return "\n".join(lines)
+
     greet = _bold("Сәлеметсіз бе!", platform) if lang == "kk" else _bold("Здравствуйте!", platform)
     who = (
         "👤 *Сіз кімсіз?* Жеке тұлға / ЖК / ТОО"
@@ -187,6 +216,18 @@ def format_welcome(lang: str, platform: Platform = "telegram") -> str:
     return "\n".join(lines)
 
 
+def has_contact_block(text: str) -> bool:
+    """В ответе уже есть офисы или несколько телефонов."""
+    if "📍" in text:
+        return True
+    return len(re.findall(r"8\s*7\d{2}", text)) >= 2
+
+
+def has_city_question(text: str) -> bool:
+    low = text.lower()
+    return "город" in low or "қала" in low
+
+
 def format_contact_footer(
     lang: str,
     city: str | None = None,
@@ -203,8 +244,10 @@ def format_contact_footer(
         return f"{block}{tail}"
 
     if all_cities:
+        header = "📍 *Офистер / байланыс*" if lang == "kk" else "📍 *Офисы / контакты*"
+        body = format_offices_block(lang, platform=platform, with_header=False)
         return (
-            f"{format_offices_block(lang, platform=platform, with_header=True)}\n\n"
+            f"{header}\n\n{body}\n\n"
             f"{WORK_HOURS_KK if lang == 'kk' else WORK_HOURS_RU}"
         )
 
