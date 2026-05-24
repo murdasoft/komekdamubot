@@ -22,6 +22,7 @@ from app.bot.knowledge_base import (
     is_ip_credit_question,
     is_personal_credit_question,
     mentions_ip,
+    mentions_mortgage,
     mentions_too,
 )
 from app.bot.text_utils import is_pure_greeting, strip_leading_greeting
@@ -288,6 +289,11 @@ def try_fast_response(
             platform=platform,
         )
 
+    if (mentions_ip(norm) or detect_business_entity(text) == "ip") and is_ip_credit_question(norm):
+        return _attach_contacts(
+            format_ip_credit_answer(lang), lang, city, platform=platform
+        )
+
     if is_personal_credit_question(text, session):
         return _attach_contacts(
             format_personal_credit_answer(lang, text),
@@ -349,6 +355,8 @@ def try_fast_response(
         and not entity
         and not mentions_ip(norm)
         and not mentions_too(norm)
+        and not mentions_mortgage(norm)
+        and intent not in ("mortgage_gov", "mortgage_standard")
     ):
         return _attach_contacts(format_clarify_borrower_type(lang), lang, city, platform=platform)
     if business and intent:

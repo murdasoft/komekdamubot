@@ -253,6 +253,15 @@ def mentions_too(text: str) -> bool:
     return bool(words & {"тоо", "төо", "тово", "too"})
 
 
+def mentions_mortgage(text: str) -> bool:
+    """Ипотека — не путать с ИП."""
+    low = text.lower()
+    if any(w in low for w in ("ипотек", "пәтер", "квартир", "үй сатып", "mortgage")):
+        return True
+    words = set(_WORD.findall(low))
+    return bool(words & {"ипотека", "ипотек", "ипотеку", "ипотеки", "пәтер"})
+
+
 def detect_business_entity(text: str) -> Optional[str]:
     """ip | too | personal | None."""
     if mentions_ip(text):
@@ -326,12 +335,21 @@ def is_ip_credit_question(text: str) -> bool:
         "на ип даму",
         "ип даму",
         "ип кредит",
+        "жк кредит",
+        "жк несие",
     )
     if any(p in low for p in explicit):
         return True
-    if any(w in low for w in ("даму", "damu", "процент", "ставк", "нет", "жоқ", "есть", "бар")):
+    if any(
+        w in low
+        for w in (
+            "даму", "damu", "процент", "ставк", "пайыз",
+            "канша", "қанша", "керек",
+            "нет", "жоқ", "есть", "бар",
+        )
+    ):
         return True
-    return len(low.strip()) < 30
+    return len(low.strip()) < 40
 
 
 def is_damu_ip_question(text: str) -> bool:
@@ -343,6 +361,8 @@ def is_personal_credit_question(text: str, session: Optional[dict] = None) -> bo
     """Вопрос про кредит физлица — явно или уточнение после контекста."""
     low = text.lower().strip()
     session = session or {}
+    if mentions_ip(low) or mentions_too(low) or mentions_mortgage(low):
+        return False
     explicit = (
         "физлиц",
         "физическ",
@@ -455,23 +475,23 @@ def format_personal_credit_answer(lang: str, text: str = "") -> str:
 
 
 def format_ip_credit_answer(lang: str) -> str:
-    """Для ИП нет DAMU, есть бизнес-кредит до 3 лет."""
+    """Для ИП: бизнес-кредит от 21%, до 3 лет (ИИ2026 §1)."""
     if lang == "kk":
         return (
             "📋 *ЖК / ИП үшін:*\n"
-            "• DAMU бағдарламасы *жоқ*\n"
-            "• Бизнес несие бар — мерзім *3 жылға* дейін\n"
+            "• Кепілсіз бизнес несие — *40 млн ₸* дейін, *21%-дан*, мерзім *3 жыл*\n"
+            "• DAMU *кепілдіксіз жоқ* — тек *кепілді* DAMU 12,6%, 10 жыл\n"
             "• Несие жүктемесіне *қарамаймыз*\n"
-            "• Негізгі: *ашық кешігу болмауы* керек\n"
-            "• Нақты шарттар — офиске кеңес, келіңіз"
+            "• *Ашық кешігу болмауы* керек\n"
+            "• Нақты есеп — офисте, кеңес *тегін*"
         )
     return (
         "📋 *Для ИП:*\n"
-        "• Программа DAMU для ИП *не оформляется*\n"
-        "• Есть бизнес-кредит, срок до *3 лет*\n"
+        "• Бизнес-кредит без залога — до *40 млн ₸*, *от 21%*, срок до *3 лет*\n"
+        "• Беззалогового DAMU *нет* — только залоговый DAMU 12,6%, до 10 лет\n"
         "• На кредитную нагрузку *не смотрим*\n"
-        "• Главное: *без открытых просрочек*\n"
-        "• Точные условия и ставка — приходите в офис на консультацию"
+        "• Без *открытых просрочек*\n"
+        "• Точный расчёт — в офисе, консультация *бесплатная*"
     )
 
 

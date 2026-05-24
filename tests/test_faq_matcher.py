@@ -14,18 +14,18 @@ class TestTryFastResponse:
 
     def test_damu_ip_no_unsecured(self):
         r = try_fast_response("даму для ип без залога", "ru")
-        assert r and "не оформляется" in r.lower()
+        assert r and ("не оформляется" in r.lower() or " damu *нет" in r.lower() or "damu *нет" in r.lower())
         assert "3 лет" in r.lower()
 
     def test_ip_no_damu_short(self):
         r = try_fast_response("на ип", "ru", "astana", "whatsapp")
         assert r and "3 лет" in r.lower()
-        assert "не оформляется" in r.lower()
+        assert "damu" in r.lower() and "нет" in r.lower()
 
     def test_ip_rate_question(self):
         r = try_fast_response("процент по кредиту на ип сколько", "ru", "astana", "whatsapp")
         assert r and "3 лет" in r.lower()
-        assert "не оформляется" in r.lower()
+        assert "damu" in r.lower() and "нет" in r.lower()
 
     def test_ip_not_triggered_in_unrelated_long_text(self):
         text = (
@@ -146,3 +146,24 @@ class TestTryFastResponse:
         assert r
         assert "25 млн" in r
         assert "Муратбаева" in r
+
+    def test_ip_credit_kk_not_personal_after_session(self):
+        session = {"last_intent": "personal_credit"}
+        r = try_fast_response(
+            "ип кредит керек па канша процент",
+            "kk",
+            platform="whatsapp",
+            session=session,
+        )
+        assert r
+        assert "40 млн" in r
+        assert "21%" in r
+        assert "25 млн" not in r
+        assert "Жеке тұлға" not in r
+
+    def test_credit_mortgage_kk_not_clarify(self):
+        r = try_fast_response("кредит ипотека", "kk", platform="whatsapp")
+        assert r
+        assert "Ипотека" in r or "ипотек" in r.lower()
+        assert "Жеке тұлға / ЖК" not in r
+        assert "Сіз кімсіз" not in r
