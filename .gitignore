@@ -6,6 +6,10 @@
 # Secrets (never commit)
 *.secret
 *.key
+deploy_key
+deploy_key.bak
+deploy_key.pub
+deploy_key.pub.bak
 .env.production
 
 # Python
