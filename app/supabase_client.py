@@ -42,6 +42,9 @@ SESSION_PERSIST_KEYS = (
     "submenu",
     "last_intent",
     "awaiting_borrower_type",
+    "menu_message_id",
+    "tg_screen",
+    "last_entity",
 )
 
 

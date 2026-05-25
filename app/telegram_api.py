@@ -53,6 +53,32 @@ class TelegramClient:
             result = await self._post("sendMessage", payload)
         return result
 
+    async def edit_message(
+        self,
+        chat_id: str | int,
+        message_id: int,
+        text: str,
+        parse_mode: str = "Markdown",
+        reply_markup: dict | None = None,
+    ) -> bool:
+        if parse_mode:
+            from app.bot.formatting import sanitize_for_telegram
+
+            text = sanitize_for_telegram(text)
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": parse_mode,
+        }
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        result = await self._post("editMessageText", payload)
+        if result is None and parse_mode:
+            payload.pop("parse_mode", None)
+            result = await self._post("editMessageText", payload)
+        return bool(result and result.get("ok"))
+
     async def answer_callback_query(self, callback_query_id: str, text: str | None = None) -> None:
         payload: dict[str, Any] = {"callback_query_id": callback_query_id}
         if text:
