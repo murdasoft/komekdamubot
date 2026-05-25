@@ -30,6 +30,10 @@ from app.bot.stt_normalize import (
 )
 from app.bot.voice_router import prepare_voice_input
 from app.bot.voice_stt import transcribe_voice_message
+from app.bot.unclear_input import (
+    is_operator_or_phone_request,
+    should_use_universal_fallback,
+)
 from app.bot.faq_matcher import try_fast_response, is_pure_greeting
 from app.bot.loan_calc import calculate_loan_payment, format_calculator_result
 from app.bot.knowledge_base import (
@@ -55,7 +59,6 @@ from app.bot.telegram_nav import (
     use_buttons_hint,
 )
 from app.bot.wizard import (
-    get_city_invalid_reply,
     get_city_step_help,
     get_city_step_text,
     get_lang_step_text,
@@ -1275,11 +1278,25 @@ async def handle_whatsapp_update(
             return "city"
         return "main"
 
-    async def send_wa_with_hint(message: str, reply_lang: str | None = None):
+    async def send_wa_with_hint(
+        message: str,
+        reply_lang: str | None = None,
+        *,
+        nav_step: str | None = None,
+    ):
         use_lang = reply_lang or session.get("lang", lang)
+        step = nav_step if nav_step is not None else _wa_nav_step()
         await wa_client.send_message(
             chat_id,
-            content.add_wa_back_hint(message, use_lang, step=_wa_nav_step()),
+            content.add_wa_back_hint(message, use_lang, step=step),
+        )
+
+    async def send_wa_universal(reply_lang: str | None = None):
+        """Любая непонятная ситуация: офисы + телефоны, навигация 0/98/99."""
+        await send_wa_with_hint(
+            get_text_fallback_reply(reply_lang or lang, platform="whatsapp"),
+            reply_lang,
+            nav_step="main",
         )
 
     # Голосовое (audioMessage / voiceMessage)
@@ -1347,10 +1364,8 @@ async def handle_whatsapp_update(
             return
 
     if is_image_message(body):
-        if session.get("state") == "selecting_lang":
-            await send_wa_with_hint(get_lang_step_text())
-        elif session.get("state") == "selecting_city":
-            await send_wa_with_hint(get_city_step_text(lang), lang)
+        if session.get("state") in ("selecting_lang", "selecting_city"):
+            await send_wa_universal(lang)
         elif session.get("city_confirmed") and session.get("city"):
             await send_wa_with_hint(
                 f"{get_media_menu_reply(lang)}\n\n{get_welcome_with_menu(lang, session['city'], 'whatsapp')}",
@@ -1367,6 +1382,23 @@ async def handle_whatsapp_update(
     lang = session.get("lang", DEFAULT_LANG)
     platform = session.get("platform", "whatsapp")
     await log_message(chat_id, platform, "user", text_stripped, lang)
+
+    if is_operator_or_phone_request(text_stripped):
+        session["state"] = "handoff"
+        session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
+        await send_wa_with_hint(
+            content.get_operator_message_with_phone(lang, session.get("city"), "whatsapp"),
+            lang,
+            nav_step="main",
+        )
+        await _notify_manager(
+            f"🚨 *Запрос телефона/менеджера (WhatsApp)*\nPhone: `{chat_id}`\nСообщение: {text_stripped}",
+            chat_id,
+            "whatsapp",
+            session=session,
+        )
+        await save_session(chat_id, session)
+        return
 
     # Handle /start — шаг 1: язык
     if text_stripped in ["/start", "start", "меню", "мәзір", "menu"]:
@@ -1405,6 +1437,10 @@ async def handle_whatsapp_update(
         return
 
     if session.get("state") == "selecting_lang":
+        if should_use_universal_fallback(text_stripped):
+            await send_wa_universal(lang)
+            await save_session(chat_id, session)
+            return
         await send_wa_with_hint(
             "🌐 Жазыңыз *1* (қазақша) немесе *2* (орысша)"
             if lang == "kk"
@@ -1420,6 +1456,7 @@ async def handle_whatsapp_update(
             await send_wa_with_hint(
                 content.get_operator_message_with_phone(lang, None, "whatsapp"),
                 lang,
+                nav_step="main",
             )
             await _notify_manager(
                 f"🚨 *Менеджер на шаге города (WhatsApp)*\nPhone: `{chat_id}`\nСообщение: {text_stripped}",
@@ -1427,6 +1464,20 @@ async def handle_whatsapp_update(
                 "whatsapp",
                 session=session,
             )
+            await save_session(chat_id, session)
+            return
+
+        core = strip_leading_greeting(text_stripped)
+        fast = try_fast_response(
+            core,
+            lang,
+            session.get("city"),
+            "whatsapp",
+            city_confirmed=False,
+            session=session,
+        )
+        if fast:
+            await send_wa_with_hint(fast, lang, nav_step="main")
             await save_session(chat_id, session)
             return
 
@@ -1444,30 +1495,8 @@ async def handle_whatsapp_update(
             )
             return
 
-        lower = text_stripped.lower()
-        if any(
-            w in lower
-            for w in (
-                "номер",
-                "телефон",
-                "позвон",
-                "звон",
-                "менеджер",
-                "оператор",
-                "человек",
-                "маман",
-                "дайте",
-                "беріңіз",
-                "нөмір",
-            )
-        ):
-            await send_wa_with_hint(
-                content.get_operator_message_with_phone(lang, None, "whatsapp"),
-                lang,
-            )
-            return
-
-        await send_wa_with_hint(get_city_invalid_reply(lang), lang)
+        await send_wa_universal(lang)
+        await save_session(chat_id, session)
         return
 
     # 0 — главное меню (шаг 3), язык и город сохраняются
@@ -1526,25 +1555,6 @@ async def handle_whatsapp_update(
             await send_wa_with_hint(get_text_fallback_reply(lang, platform="whatsapp"), lang)
             return
 
-    # Handle operator request
-    if any(word in text_stripped.lower() for word in ["оператор", "менеджер", "человек", "маман"]) or (
-        session.get("state") == "idle" and text_stripped == "7"
-    ):
-        session["state"] = "handoff"
-        session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
-        await send_wa_with_hint(
-            content.get_operator_message_with_phone(
-                lang, session.get("city"), "whatsapp"
-            )
-        )
-        await _notify_manager(
-            f"🚨 *Запрос оператора (WhatsApp)*\nPhone: `{chat_id}`\nСообщение: {text_stripped}",
-            chat_id,
-            "whatsapp",
-            session=session
-        )
-        return
-    
     # Handle WA digit menu
     if session.get("state") == "idle" or session.get("state") == "wa_menu":
         session.pop("nearby_pick", None)
@@ -1643,6 +1653,10 @@ async def handle_whatsapp_update(
         return
     
     if session.get("state") == "idle" and not session.get("city_confirmed"):
+        if should_use_universal_fallback(text_stripped):
+            await send_wa_universal(lang)
+            await save_session(chat_id, session)
+            return
         if not session.get("lang_locked"):
             session["state"] = "selecting_lang"
             await send_wa_with_hint(get_lang_step_text())
@@ -1676,7 +1690,7 @@ async def handle_whatsapp_update(
                 chat_id, "whatsapp", session=session
             )
     else:
-        fallback = get_text_fallback_reply(lang)
-        await send_wa_with_hint(fallback)
+        fallback = get_text_fallback_reply(lang, platform="whatsapp")
+        await send_wa_with_hint(fallback, lang, nav_step="main")
         await log_message(chat_id, platform, "assistant", fallback, lang)
     await save_session(chat_id, session)

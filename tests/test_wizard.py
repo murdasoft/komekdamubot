@@ -29,15 +29,18 @@ def test_nav_hint_has_98():
     assert "99" in city_hint
     assert "0" in city_hint
     assert "98" in city_hint
+    assert "7" in city_hint
+    assert "Главное меню" in city_hint or "Негізгі" in city_hint
     assert "98" in wa_nav_hint_for_step("main")
 
 
-def test_city_invalid_reply_has_manager_and_help():
+def test_city_invalid_reply_is_universal():
     from app.bot.wizard import get_city_invalid_reply, get_city_step_help
 
     ru = get_city_invalid_reply("ru")
-    assert "7" in ru and "менеджер" in ru.lower()
-    assert "0" in ru
+    assert "понял" in ru.lower() or "түсінбед" in ru.lower()
+    assert "📍" in ru or "Муратбаева" in ru
+    assert "7" in ru
     help_ru = get_city_step_help("ru")
     assert "1–7" in help_ru or "1-7" in help_ru
 

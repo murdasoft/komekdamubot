@@ -60,20 +60,10 @@ def get_city_step_help(lang: str) -> str:
 
 
 def get_city_invalid_reply(lang: str) -> str:
-    """Свободный текст на шаге города — не повторять только «1–5» и 99."""
-    if lang == "kk":
-        return (
-            "Түсінбедім 🙏\n\n"
-            "📍 Қала: *1–5* саны немесе атауы (мысалы: Алматы).\n\n"
-            "• *7* — менеджер және телефон\n"
-            "• *0* — қадамдар туралы көмек"
-        )
-    return (
-        "Не понял 🙏\n\n"
-        "📍 Город: цифра *1–5* или название (например: Алматы).\n\n"
-        "• *7* — менеджер и номер телефона\n"
-        "• *0* — подсказка по шагам"
-    )
+    """Непонятный ввод на шаге города — универсальный ответ (офисы + 7), не «только 99»."""
+    from app.bot.city_routing import get_universal_fallback_reply
+
+    return get_universal_fallback_reply(lang, platform="whatsapp")
 
 
 def get_welcome_with_menu(lang: str, city: str, platform: str = "whatsapp") -> str:
