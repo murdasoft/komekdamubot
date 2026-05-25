@@ -38,6 +38,7 @@ from app.bot.content import DEFAULT_LANG
 from app.bot.menu import (
     get_main_menu_text,
     get_media_menu_reply,
+    get_text_fallback_reply,
     menu_choice_body,
     resolve_menu_digit,
 )
@@ -517,8 +518,8 @@ async def _get_bot_reply(
     session: Dict,
     ai: AIClient | None,
 ) -> str | None:
-    """FAQ без LLM, иначе Together/Groq."""
-    settings = get_settings()
+    """Только FAQ и меню — без нейросети в текстовых ответах."""
+    _ = ai
     text = normalize_stt_borrower_answer(text, session)
     lang = _update_session_lang(text, session)
     found_city = detect_city(text)
@@ -526,38 +527,28 @@ async def _get_bot_reply(
         session["city"] = found_city
         session["city_confirmed"] = True
     core = strip_leading_greeting(text)
-    if settings.fast_faq_enabled:
-        platform = session.get("platform", "telegram")
-        fast = try_fast_response(
-            core,
-            lang,
-            session.get("city"),
-            platform,
-            city_confirmed=session.get("city_confirmed", False),
-            session=session,
-        )
-        if fast:
-            logger.info("Fast FAQ hit for: %s", core[:40])
-            _update_session_intent(core, session)
-            if is_borrower_clarify_message(fast):
-                session["awaiting_borrower_type"] = True
-            elif session.get("awaiting_borrower_type"):
-                from app.bot.knowledge_base import detect_business_entity
-
-                if detect_business_entity(core):
-                    session.pop("awaiting_borrower_type", None)
-            return fast
-    raw = await _handle_ai_response_with_context(text, session, ai)
-    if not raw:
-        return None
-    return finalize_bot_response(
-        raw,
-        text,
+    platform = session.get("platform", "telegram")
+    fast = try_fast_response(
+        core,
         lang,
         session.get("city"),
-        session.get("platform", "telegram"),
+        platform,
         city_confirmed=session.get("city_confirmed", False),
+        session=session,
     )
+    if fast:
+        logger.info("Fast FAQ hit for: %s", core[:40])
+        _update_session_intent(core, session)
+        if is_borrower_clarify_message(fast):
+            session["awaiting_borrower_type"] = True
+        elif session.get("awaiting_borrower_type"):
+            from app.bot.knowledge_base import detect_business_entity
+
+            if detect_business_entity(core):
+                session.pop("awaiting_borrower_type", None)
+        return fast
+    logger.info("No FAQ match, menu fallback: %s", core[:40])
+    return get_text_fallback_reply(lang)
 
 
 async def _handle_ai_response_with_context(
@@ -801,40 +792,23 @@ async def _start_product_flow(
     session: Dict,
     send_message_func,
 ):
-    """Start product selection flow."""
-    flow = get_flow_for_product(product_key)
-    if not flow:
-        logger.error(f"No flow found for product: {product_key}")
+    """Карточка продукта из базы — без сценария и без LLM."""
+    _ = chat_id
+    platform = session.get("platform", "telegram")
+    key = product_key
+    if key in ("mortgage_gov", "mortgage_standard"):
+        await _send_menu_choice(key, session, send_message_func, platform=platform)
         return
-    
-    lang = session.get("lang", DEFAULT_LANG)
-    first_step_key = get_first_step(flow)
-    if not first_step_key:
-        return
-    
-    session["state"] = "in_flow"
-    session["product"] = product_key
-    session["flow_step"] = first_step_key
-    session["last_intent"] = product_key
-
-    first_step = flow[first_step_key]
-    question = first_step.question_ru if lang == "ru" else first_step.question_kk
-
-    if product_key == "personal_credit":
-        from app.bot.knowledge_base import format_personal_credit_answer
-
-        await send_message_func(format_personal_credit_answer(lang))
-    else:
-        product_info = get_product_info(product_key, lang)
-        if product_info:
-            intro = (
-                f"*{product_info['name']}*\n\n"
-                f"{product_info['description']}\n\n"
-                f"📋 *Условия / Шарттар:*\n{product_info['conditions']}"
-            )
-            await send_message_func(intro)
-    
-    await send_message_func(question)
+    legacy_map = {
+        "business_credit": "ip_business",
+        "damu": "damu",
+        "refinancing": "refinancing",
+        "personal_credit": "personal_credit",
+    }
+    mapped = legacy_map.get(key, key)
+    if not await _send_menu_choice(mapped, session, send_message_func, platform=platform):
+        lang = session.get("lang", DEFAULT_LANG)
+        await send_message_func(get_text_fallback_reply(lang))
 
 
 def _set_menu_intent(choice_key: str, session: Dict) -> None:
@@ -843,6 +817,8 @@ def _set_menu_intent(choice_key: str, session: Dict) -> None:
         "too_business": ("business_credit", "too"),
         "personal_credit": ("personal_credit", "personal"),
         "mortgage_menu": ("mortgage_standard", None),
+        "mortgage_gov": ("mortgage_gov", None),
+        "mortgage_standard": ("mortgage_standard", None),
         "damu": ("damu", None),
         "refinancing": ("refinancing", None),
     }
@@ -1010,19 +986,14 @@ async def handle_telegram_update(
                 content.HANDOFF_RELEASED_RU if session.get("lang", DEFAULT_LANG) == "ru" else content.HANDOFF_RELEASED_KK
             )
             return
-        # Still answer questions via AI even in handoff
         if text:
             lang_h = session.get("lang", DEFAULT_LANG)
-            ai_response = await _handle_ai_response_with_context(text.strip(), session, ai)
-            if ai_response:
-                await tg_client.send_message(chat_id, ai_response)
-            else:
-                note = (
-                    "Менеджер скоро ответит. Напишите *бот* чтобы вернуться к боту."
-                    if lang_h == "ru" else
-                    "Менеджер жақын арада жауап береді. Ботқа оралу үшін *бот* жазыңыз."
-                )
-                await tg_client.send_message(chat_id, note)
+            note = (
+                "Менеджер скоро ответит. Напишите *бот* чтобы вернуться к боту."
+                if lang_h == "ru"
+                else "Менеджер жақын арада жауап береді. Ботқа оралу үшін *бот* жазыңыз."
+            )
+            await tg_client.send_message(chat_id, note)
         return
     
     # Handle voice message
@@ -1237,29 +1208,21 @@ async def handle_telegram_update(
             await tg_client.send_message(chat_id, content.get_whatsapp_demo(lang))
             return
     
-    # Handle active flow
-    if session.get("state") == "in_flow" and session.get("product"):
-        await _process_flow_step(
-            chat_id, text_stripped, session,
-            lambda m: tg_client.send_message(chat_id, m),
-            ai
-        )
-        return
-    
+    if session.get("state") == "in_flow":
+        session["state"] = "idle"
+        session.pop("product", None)
+        session.pop("flow_step", None)
+
     ai_response = await _get_bot_reply(text_stripped, session, ai)
     if ai_response:
-        # Store bot response in history
         session["conversation_history"].append({
             "role": "assistant",
             "text": ai_response,
             "timestamp": time.time()
         })
-        # Send AI response (no keyboards, text only)
         await tg_client.send_message(chat_id, ai_response)
     else:
-        # AI failed — give friendly fallback (not 'не понял')
-        fallback_msg = content.get_ai_fallback_message(lang, session.get("city"))
-        await tg_client.send_message(chat_id, fallback_msg)
+        await tg_client.send_message(chat_id, get_text_fallback_reply(lang))
 
 
 async def handle_whatsapp_update(
@@ -1497,10 +1460,13 @@ async def handle_whatsapp_update(
                 return
             elif mapped:
                 session["submenu"] = None
-                await _start_product_flow(
-                    chat_id, mapped, session,
-                    lambda m: send_wa_with_hint(m)
+                await _send_menu_choice(
+                    mapped,
+                    session,
+                    lambda m, rl=lang: send_wa_with_hint(m, rl),
+                    platform="whatsapp",
                 )
+                await save_session(chat_id, session)
                 return
         
         # Main menu digits 1–7
@@ -1531,15 +1497,11 @@ async def handle_whatsapp_update(
                 await save_session(chat_id, session)
                 return
     
-    # Handle active flow
-    if session.get("state") == "in_flow" and session.get("product"):
-        await _process_flow_step(
-            chat_id, text_stripped, session,
-            lambda m: send_wa_with_hint(m),
-            ai
-        )
-        return
-    
+    if session.get("state") == "in_flow":
+        session["state"] = "idle"
+        session.pop("product", None)
+        session.pop("flow_step", None)
+
     small_talk_intent = detect_small_talk_intent(text_stripped)
     if small_talk_intent and session.get("state") == "idle":
         await send_wa_with_hint(get_small_talk_response(small_talk_intent, lang))
@@ -1595,7 +1557,7 @@ async def handle_whatsapp_update(
                 chat_id, "whatsapp", session=session
             )
     else:
-        fallback = content.get_ai_fallback_message(lang, session.get("city"), "whatsapp")
+        fallback = get_text_fallback_reply(lang)
         await send_wa_with_hint(fallback)
         await log_message(chat_id, platform, "assistant", fallback, lang)
     await save_session(chat_id, session)

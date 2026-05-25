@@ -124,12 +124,29 @@ def menu_choice_body(choice_key: str, lang: str) -> str | None:
         return format_mortgage_programs_answer(lang)
     if choice_key == "damu":
         return format_damu_menu_answer(lang)
-    if choice_key == "refinancing":
-        info = get_product_info("refinancing", lang)
+    if choice_key in ("refinancing", "mortgage_gov", "mortgage_standard"):
+        info = get_product_info(choice_key, lang)
         if not info:
             return None
-        return f"📋 *{info['name']}*\n{info['description']}\n\n{info['conditions']}"
+        cond = info["conditions"].replace("\\n", "\n")
+        return f"📋 *{info['name']}*\n\n{info['description']}\n\n{cond}"
     return None
+
+
+def get_text_fallback_reply(lang: str) -> str:
+    """Нет совпадения в FAQ — меню и менеджер, без нейросети."""
+    menu = get_main_menu_text(lang)
+    if lang == "kk":
+        return (
+            "ℹ️ Бұл сұраққа дайын жауап жоқ.\n"
+            "Төмендегі мәзірден сан таңдаңыз немесе *7* — менеджер.\n\n"
+            f"{menu}"
+        )
+    return (
+        "ℹ️ На этот вопрос нет готового ответа.\n"
+        "Выберите раздел цифрой из меню или *7* — менеджер.\n\n"
+        f"{menu}"
+    )
 
 
 def format_damu_menu_answer(lang: str) -> str:
