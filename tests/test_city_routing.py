@@ -40,11 +40,9 @@ def test_taraz_not_direct_office():
     assert detect_city("Тараз") is None
 
 
-def test_nearby_reply_shows_km():
-    msg = format_nearby_offices_reply(
-        "Тараз", ["shymkent", "almaty"], "ru", distances_km=[159, 453]
-    )
-    assert "~159 км" in msg
+def test_nearby_reply_no_km():
+    msg = format_nearby_offices_reply("Тараз", ["shymkent", "almaty"], "ru")
+    assert "км" not in msg
     assert "1 — Шымкент" in msg
 
 

@@ -1195,11 +1195,11 @@ async def handle_telegram_update(
 
         nearby = detect_nearby_offices(text_stripped, lang)
         if nearby:
-            place, keys, dists = nearby
+            place, keys, _dists = nearby
             session["nearby_pick"] = keys
             await tg_client.send_message(
                 chat_id,
-                format_nearby_offices_reply(place, keys, lang, distances_km=dists),
+                format_nearby_offices_reply(place, keys, lang),
             )
             await save_session(chat_id, session)
             return
@@ -1525,12 +1525,10 @@ async def handle_whatsapp_update(
 
         nearby = detect_nearby_offices(text_stripped, lang)
         if nearby:
-            place, keys, dists = nearby
+            place, keys, _dists = nearby
             session["nearby_pick"] = keys
             await save_session(chat_id, session)
-            await send_wa_with_hint(
-                format_nearby_offices_reply(place, keys, lang, distances_km=dists), lang
-            )
+            await send_wa_with_hint(format_nearby_offices_reply(place, keys, lang), lang)
             return
 
         if looks_like_place_only(text_stripped):

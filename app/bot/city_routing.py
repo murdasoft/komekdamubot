@@ -54,21 +54,16 @@ def looks_like_place_only(text: str) -> bool:
     return False
 
 
-def format_nearby_offices_reply(
-    place: str, office_keys: list[str], lang: str, *, distances_km: list[int] | None = None
-) -> str:
+def format_nearby_offices_reply(place: str, office_keys: list[str], lang: str) -> str:
     lines: list[str] = []
     if lang == "kk":
         lines.append(f"📍 *{place}* — біздің кеңсе жоқ.")
-        lines.append("Жақын офистер (қашықтық бойынша):")
+        lines.append("Жақын офистер:")
     else:
         lines.append(f"📍 В *{place}* нашего офиса нет.")
-        lines.append("Ближайшие офисы (по расстоянию):")
+        lines.append("Ближайшие города с офисом:")
     for i, key in enumerate(office_keys, start=1):
-        extra = ""
-        if distances_km and i - 1 < len(distances_km):
-            extra = f" (~{distances_km[i - 1]} км)"
-        lines.append(f"{i} — {_city_display(key, lang)}{extra}")
+        lines.append(f"{i} — {_city_display(key, lang)}")
     if lang == "kk":
         lines.append("\nЖақын қаланы *санмен* таңдаңыз немесе *98* — қалалар тізімі.")
     else:
