@@ -239,3 +239,10 @@ def extract_green_info(body: dict[str, Any]) -> tuple[str | None, str | None, st
 
 def is_voice_message(body: dict[str, Any]) -> bool:
     return _message_data(body).get("typeMessage") in AUDIO_MESSAGE_TYPES
+
+
+IMAGE_MESSAGE_TYPES = frozenset({"imageMessage", "documentMessage"})
+
+
+def is_image_message(body: dict[str, Any]) -> bool:
+    return _message_data(body).get("typeMessage") in IMAGE_MESSAGE_TYPES

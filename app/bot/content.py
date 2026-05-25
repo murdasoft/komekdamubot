@@ -140,13 +140,13 @@ WHATSAPP_DEMO_RU = """📱 *Как выглядит этот бот в WhatsApp*
 
 Выберите цифру нужного раздела:
 
-1️⃣ Кредит для себя
-2️⃣ Кредит для бизнеса  
-3️⃣ DAMU 12,6%
+1️⃣ ИП / ЖК
+2️⃣ ТОО
+3️⃣ Кредит для себя
 4️⃣ Ипотека
-5️⃣ Страхование
-6️⃣ Инвестиции
-7️⃣ Связаться с оператором
+5️⃣ DAMU 12,6%
+6️⃣ Рефинансирование
+7️⃣ Менеджер
 
 Напишите цифру от 1 до 7
 ```
@@ -168,13 +168,13 @@ WhatsApp-та интерфейс басқа — мұндағы сияқты әд
 
 Қажетті бөлімнің санын жазыңыз:
 
-1️⃣ Жеке несие
-2️⃣ Бизнес несиесі  
-3️⃣ DAMU 12,6%
+1️⃣ ЖК / ИП
+2️⃣ ТОО
+3️⃣ Жеке несие
 4️⃣ Ипотека
-5️⃣ Сақтандыру
-6️⃣ Инвестиция
-7️⃣ Оператормен байланысу
+5️⃣ DAMU 12,6%
+6️⃣ Қайта қаржыландыру
+7️⃣ Менеджер
 
 1-ден 7-ге дейін сан жазыңыз
 ```
@@ -185,32 +185,7 @@ WhatsApp-та интерфейс басқа — мұндағы сияқты әд
 
 *WhatsApp бот нөмірі:* `+7 701 2117340`"""
 
-# WhatsApp numeric menu (for WA users)
-WA_MENU_RU = (
-    "📋 *Меню KOMEK DAMU*\n\n"
-    "Выберите цифру нужного раздела:\n\n"
-    "1️⃣ Кредит для себя\n"
-    "2️⃣ Кредит для бизнеса\n"
-    "3️⃣ DAMU 12,6%\n"
-    "4️⃣ Ипотека\n"
-    "5️⃣ Рефинансирование\n"
-    "6️⃣ Сложный случай\n"
-    "7️⃣ Связаться с менеджером\n\n"
-    "Напишите цифру от 1 до 7"
-)
-
-WA_MENU_KK = (
-    "📋 *KOMEK DAMU мәзірі*\n\n"
-    "Қажетті бөлімнің санын жазыңыз:\n\n"
-    "1️⃣ Жеке несие\n"
-    "2️⃣ Бизнес несиесі\n"
-    "3️⃣ DAMU 12,6%\n"
-    "4️⃣ Ипотека\n"
-    "5️⃣ Қайта қаржыландыру\n"
-    "6️⃣ Қиын жағдай\n"
-    "7️⃣ Менеджермен байланысу\n\n"
-    "1-ден 7-ге дейінгі санды жазыңыз"
-)
+from app.bot.menu import MAIN_MENU_DIGIT_MAP, get_main_menu_text
 
 WA_MORTGAGE_MENU_RU = (
     "🏠 *Ипотека*\n\n"
@@ -252,16 +227,8 @@ WA_FOOTER_KK = (
     "📞 `+7 701 2117340`"
 )
 
-# Map WA digits to product keys
-WA_DIGIT_MAP = {
-    "1": "personal_credit",
-    "2": "business_credit",
-    "3": "damu",
-    "4": "mortgage_menu",  # Special submenu
-    "5": "refinancing",
-    "6": "complex_case",
-    "7": "operator",
-}
+# Map WA digits → menu choice (см. app.bot.menu)
+WA_DIGIT_MAP = MAIN_MENU_DIGIT_MAP
 
 WA_MORTGAGE_DIGIT_MAP = {
     "1": "mortgage_gov",
@@ -313,7 +280,11 @@ def get_unknown_message(lang: str = "ru") -> str:
 
 
 def get_wa_menu(lang: str = DEFAULT_LANG) -> str:
-    return WA_MENU_RU if lang == "ru" else WA_MENU_KK
+    return get_main_menu_text(lang)
+
+
+def get_whatsapp_demo(lang: str = "ru") -> str:
+    return WHATSAPP_DEMO_KK if lang == "kk" else WHATSAPP_DEMO_RU
 
 
 def add_wa_back_hint(message: str, lang: str = DEFAULT_LANG) -> str:

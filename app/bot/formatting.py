@@ -165,53 +165,45 @@ def format_offices_block(
 def format_welcome(lang: str, platform: Platform = "telegram") -> str:
     """Приветствие с условиями KOMEK DAMU и офисами."""
     if platform == "whatsapp":
+        from app.bot.menu import get_main_menu_text
+
         greet = "Сәлеметсіз бе!" if lang == "kk" else "Здравствуйте!"
-        city_q = (
-            "❓ *Қай қаладасыз?*"
+        pick = (
+            "👇 Таңдаңыз: 1–7 санын жазыңыз"
             if lang == "kk"
-            else "❓ *Из какого вы города?*"
+            else "👇 Выберите: напишите цифру 1–7"
         )
         lines = [
             greet,
             "",
-            city_q,
+            pick,
+            "",
+            get_main_menu_text(lang),
             "",
             format_offices_block(lang, platform=platform, with_header=False),
             "",
             WORK_HOURS_KK if lang == "kk" else WORK_HOURS_RU,
-            "",
-            "💬 Сұрағыңызды жазыңыз"
-            if lang == "kk"
-            else "💬 Напишите ваш вопрос",
         ]
         return "\n".join(lines)
 
+    from app.bot.menu import get_main_menu_text
+
     greet = _bold("Сәлеметсіз бе!", platform) if lang == "kk" else _bold("Здравствуйте!", platform)
-    who = (
-        "👤 *Сіз кімсіз?* Жеке тұлға / ЖК / ТОО"
+    pick = (
+        "👇 *Таңдаңыз:* төмендегі сандарды жазыңыз немесе түймелерді басыңыз"
         if lang == "kk"
-        else "👤 *Кто вы?* Физлицо / ИП / ТОО"
-    )
-    city_q = (
-        "❓ *Қай қаладасыз?*"
-        if lang == "kk"
-        else "❓ *Из какого вы города?*"
+        else "👇 *Выберите раздел:* цифрой ниже или кнопкой"
     )
     lines = [
         greet,
         "",
-        format_company_offer(lang, platform),
+        pick,
         "",
-        who,
-        city_q,
+        get_main_menu_text(lang),
         "",
         format_offices_block(lang, platform=platform, with_header=False),
         "",
         WORK_HOURS_KK if lang == "kk" else WORK_HOURS_RU,
-        "",
-        "💬 Сұрағыңызды жазыңыз / /start"
-        if lang == "kk"
-        else "💬 Напишите вопрос / /start",
     ]
     return "\n".join(lines)
 

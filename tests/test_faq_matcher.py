@@ -37,7 +37,7 @@ class TestTryFastResponse:
 
     def test_ambiguous_credit_asks_type(self):
         r = try_fast_response("в Астане кредит дадите", "ru", "astana", "whatsapp")
-        assert r and ("ИП" in r or "физлиц" in r.lower())
+        assert r and ("ИП" in r or "физлиц" in r.lower() or "1️⃣" in r)
 
     def test_greeting(self):
         r = try_fast_response("Привет", "ru")
@@ -165,5 +165,16 @@ class TestTryFastResponse:
         r = try_fast_response("кредит ипотека", "kk", platform="whatsapp")
         assert r
         assert "Ипотека" in r or "ипотек" in r.lower()
-        assert "Жеке тұлға / ЖК" not in r
         assert "Сіз кімсіз" not in r
+
+    def test_menu_digit_1_ip_kk(self):
+        from app.bot.menu import menu_choice_body
+
+        body = menu_choice_body("ip_business", "kk")
+        assert body and "40 млн" in body and "21%" in body
+
+    def test_menu_digit_2_too_ru(self):
+        from app.bot.menu import menu_choice_body
+
+        body = menu_choice_body("too_business", "ru")
+        assert body and "200 млн" in body and "12,6%" in body

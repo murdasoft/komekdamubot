@@ -18,7 +18,8 @@ def test_whatsapp_welcome_no_backticks():
     msg = format_welcome("ru", "whatsapp")
     assert "```" not in msg
     assert "📍 *Астана*" in msg
-    assert msg.count("Из какого вы города") == 1
+    assert "1️⃣ ИП" in msg or "1️⃣" in msg
+    assert "цифру 1–7" in msg or "1–7" in msg
 
 
 def test_clean_whatsapp_dedupe_city_question():

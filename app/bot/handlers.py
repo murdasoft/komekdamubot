@@ -23,7 +23,7 @@ from app.bot.stt_normalize import (
     normalize_stt_borrower_answer,
     stt_prompt_for_session,
 )
-from app.bot.faq_matcher import try_fast_response
+from app.bot.faq_matcher import try_fast_response, is_pure_greeting
 from app.bot.loan_calc import calculate_loan_payment, format_calculator_result
 from app.bot.knowledge_base import (
     detect_intent, get_product_info, get_faq_answer,
@@ -35,6 +35,14 @@ from app.bot.flows import (
 )
 from app.bot import content
 from app.bot.content import DEFAULT_LANG
+from app.bot.menu import (
+    get_main_menu_text,
+    get_media_menu_reply,
+    get_telegram_main_menu_keyboard,
+    menu_choice_body,
+    resolve_menu_digit,
+)
+from app.offices import get_contact_footer
 from app.bot.lang_detect import detect_message_lang
 from app.bot.kazakh_dict import KK_CHARS
 from app.supabase_client import save_session, load_session, log_message, create_lead
@@ -819,6 +827,77 @@ async def _start_product_flow(
     await send_message_func(question)
 
 
+def _set_menu_intent(choice_key: str, session: Dict) -> None:
+    mapping = {
+        "ip_business": ("business_credit", "ip"),
+        "too_business": ("business_credit", "too"),
+        "personal_credit": ("personal_credit", "personal"),
+        "mortgage_menu": ("mortgage_standard", None),
+        "damu": ("damu", None),
+        "refinancing": ("refinancing", None),
+    }
+    intent, entity = mapping.get(choice_key, (choice_key, None))
+    session["last_intent"] = intent
+    if entity:
+        session["last_entity"] = entity
+    session.pop("awaiting_borrower_type", None)
+    session["state"] = "idle"
+    session["product"] = None
+    session["flow_step"] = None
+
+
+async def _send_menu_choice(
+    choice_key: str,
+    session: Dict,
+    send_message_func,
+    *,
+    platform: str = "telegram",
+    attach_contacts: bool = True,
+) -> bool:
+    """Ответ по цифре меню без лишних вопросов. True если обработано."""
+    if choice_key == "operator":
+        return False
+
+    lang = session.get("lang", DEFAULT_LANG)
+    body = menu_choice_body(choice_key, lang)
+    if not body:
+        return False
+
+    _set_menu_intent(choice_key, session)
+    city = session.get("city")
+    if attach_contacts and city:
+        body = f"{body}\n\n{get_contact_footer(city, lang, all_cities=False, platform=platform)}"  # type: ignore[arg-type]
+    elif attach_contacts and platform == "whatsapp":
+        if lang == "kk":
+            body = f"{body}\n\n❓ *Қай қаладасыз?*"
+        else:
+            body = f"{body}\n\n❓ *Из какого вы города?*"
+
+    await send_message_func(body)
+
+    if choice_key == "mortgage_menu" and platform == "whatsapp":
+        session["submenu"] = "mortgage"
+        await send_message_func(content.get_wa_mortgage_menu(lang))
+    return True
+
+
+async def _try_handle_menu_digit(
+    digit: str,
+    session: Dict,
+    send_message_func,
+    *,
+    platform: str = "telegram",
+) -> bool:
+    choice = resolve_menu_digit(digit)
+    if not choice:
+        return False
+    if choice == "operator":
+        return False
+    return await _send_menu_choice(
+        choice, session, send_message_func, platform=platform
+    )
+
+
 async def handle_telegram_update(
     body: Dict[str, Any],
     tg_client,
@@ -890,7 +969,9 @@ async def handle_telegram_update(
             await save_session(chat_id, session)
             
             await tg_client.send_message(
-                chat_id, content.get_greeting(selected_lang, "telegram")
+                chat_id,
+                content.get_greeting(selected_lang, "telegram"),
+                reply_markup=get_telegram_main_menu_keyboard(selected_lang),
             )
             return
 
@@ -1009,6 +1090,16 @@ async def handle_telegram_update(
                     )
                     return
     
+    msg = body.get("message") or {}
+    if not text and msg and (msg.get("photo") or msg.get("document")):
+        lang_ph = session.get("lang", DEFAULT_LANG)
+        await tg_client.send_message(
+            chat_id,
+            f"{get_media_menu_reply(lang_ph)}\n\n{get_main_menu_text(lang_ph)}",
+            reply_markup=get_telegram_main_menu_keyboard(lang_ph),
+        )
+        return
+
     if not text:
         return
     
@@ -1017,30 +1108,6 @@ async def handle_telegram_update(
     
     # Handle /start or menu return
     if text_stripped in ["/start", "/menu", "меню", "главное меню", "басты мәзір"]:
-        return
-    
-    # Auto-detect language from text for voice/any input
-    kk_chars = set('әіңғүұқөһ')
-    if any(c in text_stripped.lower() for c in kk_chars):
-        session["lang"] = "kk"
-        lang = "kk"
-        
-        session["conversation_history"].append({
-            "role": "user",
-            "text": text_stripped,
-            "timestamp": time.time()
-        })
-        ai_response = await _handle_ai_response_with_context(text_stripped, session, ai)
-        if ai_response:
-            session["conversation_history"].append({
-                "role": "assistant",
-                "text": ai_response,
-                "timestamp": time.time()
-            })
-            await tg_client.send_message(chat_id, ai_response)
-        else:
-            await tg_client.send_message(chat_id, content.get_ai_fallback_message(lang, session.get("city")))
-        await save_session(chat_id, session)
         return
     
     # Handle operator request
@@ -1072,8 +1139,38 @@ async def handle_telegram_update(
     menu_keywords = ["меню", "menu", "мәзір", "список", "варианты", "нұсқалар", "/menu"]
     if any(w in text_stripped.lower() for w in menu_keywords) and session.get("state") == "idle":
         lang = session.get("lang", DEFAULT_LANG)
-        await tg_client.send_message(chat_id, content.get_greeting(lang, "telegram"))
+        await tg_client.send_message(
+            chat_id,
+            content.get_greeting(lang, "telegram"),
+            reply_markup=get_telegram_main_menu_keyboard(lang),
+        )
         return
+
+    if (
+        session.get("state") == "idle"
+        and text_stripped in content.WA_DIGIT_MAP
+        and not session.get("submenu")
+    ):
+        if text_stripped == "7":
+            session["state"] = "handoff"
+            session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
+            await tg_client.send_message(
+                chat_id,
+                content.get_operator_message_with_phone(lang, session.get("city")),
+            )
+            await _notify_manager(
+                f"🚨 *Меню → менеджер (Telegram)*\nChat: `{chat_id}`",
+                chat_id,
+                "telegram",
+                session=session,
+            )
+            await save_session(chat_id, session)
+            return
+        if await _try_handle_menu_digit(
+            text_stripped, session, lambda m: tg_client.send_message(chat_id, m), platform="telegram"
+        ):
+            await save_session(chat_id, session)
+            return
 
     # Log message to database
     await log_message(chat_id, platform, "user", text_stripped, lang)
@@ -1101,6 +1198,14 @@ async def handle_telegram_update(
     
     # Ответ: FAQ мгновенно, иначе LLM (idle, не в сценарии)
     if session.get("state") == "idle" and not callback_id:
+        if is_pure_greeting(text_stripped):
+            await tg_client.send_message(
+                chat_id,
+                content.get_greeting(lang, "telegram"),
+                reply_markup=get_telegram_main_menu_keyboard(lang),
+            )
+            await save_session(chat_id, session)
+            return
         ai_response = await _get_bot_reply(text_stripped, session, ai)
         if ai_response:
             # Extract control tags
@@ -1112,7 +1217,12 @@ async def handle_telegram_update(
                 "text": clean_response,
                 "timestamp": time.time()
             })
-            await tg_client.send_message(chat_id, clean_response)
+            km = (
+                get_telegram_main_menu_keyboard(lang)
+                if "Меню" in clean_response or "мәзір" in clean_response.lower()
+                else None
+            )
+            await tg_client.send_message(chat_id, clean_response, reply_markup=km)
             await log_message(chat_id, platform, "assistant", clean_response, lang)
             if notify_manager:
                 await _notify_manager(
@@ -1132,18 +1242,47 @@ async def handle_telegram_update(
     # Handle callback queries (button clicks)
     if callback_id and text_stripped.startswith(("product:", "menu:", "action:", "lang:", "platform:")):
         await tg_client.answer_callback_query(callback_id)
-        
+
+        if text_stripped.startswith("menu:") and text_stripped != "menu:main":
+            digit = text_stripped.split(":", 1)[1]
+            if digit == "7":
+                session["state"] = "handoff"
+                session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
+                await tg_client.send_message(
+                    chat_id,
+                    content.get_operator_message_with_phone(lang, session.get("city")),
+                )
+                await save_session(chat_id, session)
+                return
+            if await _try_handle_menu_digit(
+                digit,
+                session,
+                lambda m: tg_client.send_message(chat_id, m),
+                platform="telegram",
+            ):
+                await save_session(chat_id, session)
+                return
+
         if text_stripped.startswith("product:"):
             product_key = text_stripped.split(":", 1)[1]
             await _start_product_flow(chat_id, product_key, session, lambda m: tg_client.send_message(chat_id, m))
             return
         
         elif text_stripped == "menu:mortgage":
-            await tg_client.send_message(chat_id, "Ипотека — тек офисте кеңес алады. Келіңіз / Приходите в офис.")
+            await _send_menu_choice(
+                "mortgage_menu",
+                session,
+                lambda m: tg_client.send_message(chat_id, m),
+                platform="telegram",
+            )
             return
         
         elif text_stripped == "menu:main":
-            await tg_client.send_message(chat_id, content.get_greeting(lang, "telegram"))
+            await tg_client.send_message(
+                chat_id,
+                content.get_greeting(lang, "telegram"),
+                reply_markup=get_telegram_main_menu_keyboard(lang),
+            )
             return
         
         elif text_stripped == "action:operator":
@@ -1191,6 +1330,7 @@ async def handle_whatsapp_update(
         extract_green_info,
         get_audio_filename,
         extract_media_download_url,
+        is_image_message,
         is_voice_message,
     )
     import logging
@@ -1283,6 +1423,12 @@ async def handle_whatsapp_update(
                 else "Ошибка обработки голосового. Отправьте ещё раз или напишите текстом."
             )
             return
+
+    if is_image_message(body):
+        await send_wa_with_hint(
+            f"{get_media_menu_reply(lang)}\n\n{get_main_menu_text(lang)}", lang
+        )
+        return
 
     if not text:
         return
@@ -1380,27 +1526,33 @@ async def handle_whatsapp_update(
                 )
                 return
         
-        # Main menu digits
+        # Main menu digits 1–7
         mapped = content.WA_DIGIT_MAP.get(text_stripped)
-        if mapped == "mortgage_menu":
-            session["submenu"] = "mortgage"
-            await send_wa_with_hint(content.get_wa_mortgage_menu(lang))
-            return
-        elif mapped == "operator":
+        if mapped == "operator":
             session["state"] = "handoff"
             session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
             await send_wa_with_hint(
-            content.get_operator_message_with_phone(
-                lang, session.get("city"), "whatsapp"
+                content.get_operator_message_with_phone(
+                    lang, session.get("city"), "whatsapp"
+                )
             )
-        )
-            return
-        elif mapped:
-            await _start_product_flow(
-                chat_id, mapped, session,
-                lambda m: send_wa_with_hint(m)
+            await _notify_manager(
+                f"🚨 *Меню → менеджер (WhatsApp)*\nPhone: `{chat_id}`",
+                chat_id,
+                "whatsapp",
+                session=session,
             )
+            await save_session(chat_id, session)
             return
+        if mapped:
+            if await _send_menu_choice(
+                mapped,
+                session,
+                lambda m, rl=lang: send_wa_with_hint(m, rl),
+                platform="whatsapp",
+            ):
+                await save_session(chat_id, session)
+                return
     
     # Handle active flow
     if session.get("state") == "in_flow" and session.get("product"):
