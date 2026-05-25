@@ -1273,9 +1273,20 @@ async def handle_whatsapp_update(
 
     lang = session.get("lang", DEFAULT_LANG)
 
+    def _wa_nav_step() -> str | None:
+        st = session.get("state")
+        if st == "selecting_lang":
+            return "lang"
+        if st == "selecting_city":
+            return "city"
+        return "main"
+
     async def send_wa_with_hint(message: str, reply_lang: str | None = None):
         use_lang = reply_lang or session.get("lang", lang)
-        await wa_client.send_message(chat_id, content.add_wa_back_hint(message, use_lang))
+        await wa_client.send_message(
+            chat_id,
+            content.add_wa_back_hint(message, use_lang, step=_wa_nav_step()),
+        )
 
     # Голосовое (audioMessage / voiceMessage)
     if is_voice_message(body):

@@ -6,11 +6,18 @@ Russian and Kazakh languages supported.
 # Қазақша — негізгі тіл; орысша — 99 арқылы таңдау
 DEFAULT_LANG = "kk"
 
-WA_NAV_HINT = (
+WA_NAV_HINT_MAIN = (
     "0 — Назад в главное меню / Бас мәзірге қайту\n"
     "98 — Сменить город / Қаланы ауыстыру\n"
     "99 — Сменить язык / Тілді ауыстыру"
 )
+
+WA_NAV_HINT_CITY = (
+    "99 — Сменить язык / Тілді ауыстыру"
+)
+
+# Обратная совместимость
+WA_NAV_HINT = WA_NAV_HINT_MAIN
 
 # Platform selection
 PLATFORM_PROMPT_RU = "📱 *Выберите мессенджер / Мессенджерді таңдаңыз:*"
@@ -288,7 +295,21 @@ def get_whatsapp_demo(lang: str = "ru") -> str:
     return WHATSAPP_DEMO_KK if lang == "kk" else WHATSAPP_DEMO_RU
 
 
-def add_wa_back_hint(message: str, lang: str = DEFAULT_LANG) -> str:
-    """Добавить подсказки 0/99 на двух языках (lang — только для текста ответа)."""
-    _ = lang  # ответ уже на выбранном языке; навигация всегда двуязычная
-    return f"{message}\n\n{WA_NAV_HINT}"
+def wa_nav_hint_for_step(step: str | None) -> str:
+    """Подсказки навигации без дублей: на шаге языка — без 99 внизу."""
+    if step == "lang":
+        return ""
+    if step == "city":
+        return WA_NAV_HINT_CITY
+    return WA_NAV_HINT_MAIN
+
+
+def add_wa_back_hint(
+    message: str, lang: str = DEFAULT_LANG, *, step: str | None = None
+) -> str:
+    """Добавить подсказки 0/98/99 (зависит от шага мастера)."""
+    _ = lang
+    hint = wa_nav_hint_for_step(step)
+    if not hint:
+        return message
+    return f"{message}\n\n{hint}"
