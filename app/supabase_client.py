@@ -45,6 +45,7 @@ SESSION_PERSIST_KEYS = (
     "menu_message_id",
     "tg_screen",
     "last_entity",
+    "nearby_pick",
 )
 
 

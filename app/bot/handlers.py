@@ -15,6 +15,11 @@ from app.config import get_settings
 from app.ai_client import AIClient
 from app.prompts import get_system_prompt
 from app.offices import detect_city
+from app.bot.city_routing import (
+    detect_nearby_offices,
+    format_nearby_offices_reply,
+    looks_like_place_only,
+)
 from app.bot.text_utils import strip_leading_greeting
 from app.bot.response_builder import finalize_bot_response
 from app.gemini_client import GeminiClient, get_gemini_client
@@ -548,7 +553,8 @@ async def _get_bot_reply(
                 session.pop("awaiting_borrower_type", None)
         return fast
     logger.info("No FAQ match, menu fallback: %s", core[:40])
-    return get_text_fallback_reply(lang)
+    platform = session.get("platform", "telegram")
+    return get_text_fallback_reply(lang, platform=platform)
 
 
 async def _handle_ai_response_with_context(
@@ -1165,7 +1171,37 @@ async def handle_telegram_update(
         await log_message(chat_id, platform, "assistant", calc_result, lang)
         return
     
-    # Ответ: FAQ мгновенно, иначе LLM (idle, не в сценарии)
+    if session.get("state") == "idle" and not callback_id:
+        if session.get("nearby_pick") and text_stripped.isdigit():
+            opts = session.get("nearby_pick") or []
+            idx = int(text_stripped) - 1
+            if 0 <= idx < len(opts):
+                session["city"] = opts[idx]
+                session["city_confirmed"] = True
+                session.pop("nearby_pick", None)
+                await render_screen(tg_client, chat_id, session, "main")
+                await save_session(chat_id, session)
+                return
+            session.pop("nearby_pick", None)
+
+        found_city = detect_city(text_stripped)
+        if found_city:
+            session["city"] = found_city
+            session["city_confirmed"] = True
+            session.pop("nearby_pick", None)
+            await render_screen(tg_client, chat_id, session, "main", message_id=session.get("menu_message_id"))
+            await save_session(chat_id, session)
+            return
+
+        nearby = detect_nearby_offices(text_stripped)
+        if nearby:
+            place, keys = nearby
+            session["nearby_pick"] = keys
+            await tg_client.send_message(chat_id, format_nearby_offices_reply(place, keys, lang))
+            await save_session(chat_id, session)
+            return
+
+    # Ответ: FAQ мгновенно, без нейросети (idle, не в сценарии)
     if session.get("state") == "idle" and not callback_id:
         if is_pure_greeting(text_stripped):
             await render_screen(
@@ -1197,7 +1233,9 @@ async def handle_telegram_update(
                 # Mark session as directed to office — repeat office reminder on further messages
                 session["state"] = "office_directed"
         else:
-            await tg_client.send_message(chat_id, content.get_ai_fallback_message(lang, session.get("city")))
+            await tg_client.send_message(
+                chat_id, get_text_fallback_reply(lang, platform="telegram")
+            )
         await save_session(chat_id, session)
         return
     
@@ -1234,7 +1272,9 @@ async def handle_telegram_update(
         })
         await tg_client.send_message(chat_id, ai_response)
     else:
-        await tg_client.send_message(chat_id, get_text_fallback_reply(lang))
+        await tg_client.send_message(
+            chat_id, get_text_fallback_reply(lang, platform="telegram")
+        )
 
 
 async def handle_whatsapp_update(
@@ -1452,12 +1492,46 @@ async def handle_whatsapp_update(
             await send_wa_with_hint(get_lang_step_text())
         return
 
+    if session.get("nearby_pick") and text_stripped.isdigit():
+        opts = session.get("nearby_pick") or []
+        idx = int(text_stripped) - 1
+        if 0 <= idx < len(opts):
+            session["city"] = opts[idx]
+            session["city_confirmed"] = True
+            session.pop("nearby_pick", None)
+            session["state"] = "idle"
+            await save_session(chat_id, session)
+            await send_wa_with_hint(
+                get_welcome_with_menu(session["lang"], opts[idx], "whatsapp"),
+                session["lang"],
+            )
+            return
+        session.pop("nearby_pick", None)
+
     if session.get("state") == "idle":
         found_city = detect_city(text_stripped)
         if found_city:
             session["city"] = found_city
             session["city_confirmed"] = True
-    
+            session.pop("nearby_pick", None)
+            await save_session(chat_id, session)
+            await send_wa_with_hint(
+                get_welcome_with_menu(lang, found_city, "whatsapp"), lang
+            )
+            return
+
+        nearby = detect_nearby_offices(text_stripped)
+        if nearby:
+            place, keys = nearby
+            session["nearby_pick"] = keys
+            await save_session(chat_id, session)
+            await send_wa_with_hint(format_nearby_offices_reply(place, keys, lang), lang)
+            return
+
+        if looks_like_place_only(text_stripped):
+            await send_wa_with_hint(get_text_fallback_reply(lang, platform="whatsapp"), lang)
+            return
+
     # Handle operator request
     if any(word in text_stripped.lower() for word in ["оператор", "менеджер", "человек", "маман"]) or (
         session.get("state") == "idle" and text_stripped == "7"
@@ -1479,6 +1553,7 @@ async def handle_whatsapp_update(
     
     # Handle WA digit menu
     if session.get("state") == "idle" or session.get("state") == "wa_menu":
+        session.pop("nearby_pick", None)
         # Check for mortgage submenu
         if session.get("submenu") == "mortgage":
             mapped = content.WA_MORTGAGE_DIGIT_MAP.get(text_stripped)

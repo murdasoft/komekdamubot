@@ -131,20 +131,11 @@ def menu_choice_body(choice_key: str, lang: str) -> str | None:
     return None
 
 
-def get_text_fallback_reply(lang: str) -> str:
-    """Нет совпадения в FAQ — меню и менеджер, без нейросети."""
-    menu = get_main_menu_text(lang)
-    if lang == "kk":
-        return (
-            "ℹ️ Бұл сұраққа дайын жауап жоқ.\n"
-            "Төмендегі мәзірден сан таңдаңыз немесе *7* — менеджер.\n\n"
-            f"{menu}"
-        )
-    return (
-        "ℹ️ На этот вопрос нет готового ответа.\n"
-        "Выберите раздел цифрой из меню или *7* — менеджер.\n\n"
-        f"{menu}"
-    )
+def get_text_fallback_reply(lang: str, *, platform: str = "whatsapp") -> str:
+    """Нет совпадения в FAQ — универсальный ответ с офисами (без нейросети)."""
+    from app.bot.city_routing import get_universal_fallback_reply
+
+    return get_universal_fallback_reply(lang, platform=platform)
 
 
 def format_damu_menu_answer(lang: str) -> str:
