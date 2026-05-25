@@ -1133,6 +1133,18 @@ async def handle_telegram_update(
     await log_message(chat_id, platform, "user", text_stripped, lang)
     
     # Check for small talk (random responses)
+    if session.get("state") == "idle" and (
+        is_pure_greeting(text_stripped) or detect_small_talk_intent(text_stripped) == "greeting"
+    ):
+        if not session.get("lang_locked"):
+            await render_screen(tg_client, chat_id, session, "lang")
+        elif not session.get("city_confirmed"):
+            await render_screen(tg_client, chat_id, session, "city", message_id=session.get("menu_message_id"))
+        else:
+            await render_screen(tg_client, chat_id, session, "main", message_id=session.get("menu_message_id"))
+        await save_session(chat_id, session)
+        return
+
     small_talk_intent = detect_small_talk_intent(text_stripped)
     if small_talk_intent and session.get("state") == "idle":
         response = get_small_talk_response(small_talk_intent, lang)
@@ -1368,6 +1380,16 @@ async def handle_whatsapp_update(
         await send_wa_with_hint(get_lang_step_text())
         return
 
+    # 98 — выбор города (шаг 2)
+    if text_stripped == "98":
+        if not session.get("lang_locked"):
+            await send_wa_with_hint(get_lang_step_text())
+            return
+        session["state"] = "selecting_city"
+        await save_session(chat_id, session)
+        await send_wa_with_hint(get_city_step_text(session.get("lang", lang)), session.get("lang", lang))
+        return
+
     # Шаг 1: язык
     if text_stripped in ["1", "2"] and session.get("state") == "selecting_lang":
         session["lang"] = "kk" if text_stripped == "1" else "ru"
@@ -1501,6 +1523,23 @@ async def handle_whatsapp_update(
         session["state"] = "idle"
         session.pop("product", None)
         session.pop("flow_step", None)
+
+    if (
+        session.get("state") == "idle"
+        and (is_pure_greeting(text_stripped) or detect_small_talk_intent(text_stripped) == "greeting")
+    ):
+        if not session.get("lang_locked"):
+            session["state"] = "selecting_lang"
+            await save_session(chat_id, session)
+            await send_wa_with_hint(get_lang_step_text())
+            return
+        if not session.get("city_confirmed"):
+            session["state"] = "selecting_city"
+            await save_session(chat_id, session)
+            await send_wa_with_hint(get_city_step_text(lang), lang)
+            return
+        await send_wa_with_hint(get_welcome_with_menu(lang, session["city"], "whatsapp"), lang)
+        return
 
     small_talk_intent = detect_small_talk_intent(text_stripped)
     if small_talk_intent and session.get("state") == "idle":

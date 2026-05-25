@@ -17,3 +17,10 @@ def test_lang_step_has_digits():
 def test_city_step_five_cities():
     t = get_city_step_text("ru")
     assert "1 —" in t and "5 —" in t or "5 — Актау" in t
+    assert "98" in t
+
+
+def test_nav_hint_has_98():
+    from app.bot.content import WA_NAV_HINT
+
+    assert "98" in WA_NAV_HINT
