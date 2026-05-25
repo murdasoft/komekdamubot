@@ -1,4 +1,4 @@
-"""AI client factory: Together, Groq, or local Ollama."""
+"""AI client factory: Groq (основной), local Ollama, Together (legacy)."""
 
 from __future__ import annotations
 
@@ -11,17 +11,17 @@ from app.together_client import TogetherClient
 if TYPE_CHECKING:
     from app.config import Settings
 
-AIClient = Union[TogetherClient, GroqClient, LocalAIClient]
+AIClient = Union[GroqClient, LocalAIClient, TogetherClient]
 
 
 def create_ai_client(settings: "Settings") -> AIClient | None:
     provider = settings.effective_ai_provider
 
-    if provider == "together" and settings.is_together_configured:
-        return TogetherClient(
-            api_key=settings.together_api_key,
-            model=settings.together_model,
-            stt_model=settings.together_stt_model,
+    if provider == "groq" and settings.is_groq_configured:
+        return GroqClient(
+            api_key=settings.groq_api_key,
+            model=settings.groq_model,
+            stt_model=settings.groq_stt_model,
         )
     if provider == "local" and settings.local_llm_base_url:
         if not settings.local_whisper_url:
@@ -33,6 +33,12 @@ def create_ai_client(settings: "Settings") -> AIClient | None:
             api_key=settings.local_llm_api_key,
             num_ctx=settings.local_llm_num_ctx,
             keep_alive=settings.local_llm_keep_alive,
+        )
+    if provider == "together" and settings.is_together_configured:
+        return TogetherClient(
+            api_key=settings.together_api_key,
+            model=settings.together_model,
+            stt_model=settings.together_stt_model,
         )
     if settings.is_groq_configured:
         return GroqClient(

@@ -30,11 +30,13 @@ REMOVE = [
 
 SET: dict[str, str] = {
     "WEBHOOK_BASE_URL": "https://komek-damu-bot.vercel.app",
-    "AI_PROVIDER": "together",
-    "GROQ_ENABLED": "false",
+    "AI_PROVIDER": "groq",
+    "GROQ_ENABLED": "true",
+    "GROQ_MODEL": "openai/gpt-oss-120b",
+    "GROQ_STT_MODEL": "whisper-large-v3",
+    "GROQ_VOICE_STT": "true",
+    "GROQ_VOICE_INTENT": "false",
     "FAST_FAQ": "true",
-    "TOGETHER_MODEL": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-    "TOGETHER_STT_MODEL": "openai/whisper-large-v3",
     "GREEN_API_URL": "https://7107.api.greenapi.com",
     "REMINDER_DELAY_SECONDS": "3600",
     "ORDER_ABANDON_NUDGE_SECONDS": "1800",
@@ -145,8 +147,8 @@ def main() -> None:
     missing = [k for k, v in SET.items() if not v]
     if missing:
         print("Missing required values:", ", ".join(missing))
-        if "TOGETHER_API_KEY" in missing:
-            print("WARNING: TOGETHER_API_KEY missing — bot will fallback to Groq")
+        if "GROQ_API_KEY" in missing:
+            print("WARNING: GROQ_API_KEY missing — voice and AI will not work")
 
     for name in REMOVE:
         rm(name)

@@ -1,6 +1,5 @@
 """
-Голос → текст: faster-whisper (VPS) или Together Whisper (Vercel).
-Groq Whisper — только если GROQ_VOICE_STT=true или все остальные не сработали.
+Голос → текст: Groq Whisper (основной), faster-whisper (VPS), Together (legacy).
 """
 
 from __future__ import annotations
@@ -25,11 +24,11 @@ DOMAIN_STT_PROMPT = (
 
 
 def is_voice_stt_available(settings: "Settings") -> bool:
-    if settings.is_together_configured:
+    if settings.is_groq_configured:
         return True
     if settings.local_whisper_url:
         return True
-    if settings.is_groq_configured:
+    if settings.is_together_configured:
         return True
     return settings.is_local_ai_configured
 
@@ -170,12 +169,12 @@ async def transcribe_voice_message(
             langs.append(lang)
 
     providers: list[str] = []
-    if settings.voice_stt_prefer_groq:
-        providers = ["groq", "together", "local_url", "ai"]
-    elif settings.is_together_configured:
-        providers = ["together", "local_url", "ai", "groq"]
+    if settings.voice_stt_prefer_groq or settings.is_groq_configured:
+        providers = ["groq", "local_url", "ai", "together"]
+    elif settings.local_whisper_url:
+        providers = ["local_url", "ai", "groq", "together"]
     else:
-        providers = ["local_url", "ai", "together", "groq"]
+        providers = ["groq", "local_url", "ai", "together"]
 
     best_text: str | None = None
     best_lang = lang_hint or "kk"

@@ -37,7 +37,7 @@ class Settings:
     )
     green_api_webhook_token: str = field(default_factory=lambda: _getenv("GREEN_API_WEBHOOK_TOKEN", "changeme"))
     
-    # Together AI (основной на Vercel)
+    # Together AI (legacy, опционально)
     together_api_key: str = field(default_factory=lambda: _getenv("TOGETHER_API_KEY"))
     together_model: str = field(
         default_factory=lambda: _getenv(
@@ -48,13 +48,15 @@ class Settings:
         default_factory=lambda: _getenv("TOGETHER_STT_MODEL", "openai/whisper-large-v3")
     )
 
-    # Groq AI (резерв / STT)
+    # Groq AI — основной LLM + STT (OpenAI-compatible API)
     groq_api_key: str = field(default_factory=lambda: _getenv("GROQ_API_KEY"))
-    groq_model: str = field(default_factory=lambda: _getenv("GROQ_MODEL", "llama-3.3-70b-versatile"))
+    groq_model: str = field(
+        default_factory=lambda: _getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+    )
     groq_stt_model: str = field(default_factory=lambda: _getenv("GROQ_STT_MODEL", "whisper-large-v3"))
 
     # Local AI (Ollama + Whisper on Hetzner)
-    ai_provider: str = field(default_factory=lambda: _getenv("AI_PROVIDER", ""))
+    ai_provider: str = field(default_factory=lambda: _getenv("AI_PROVIDER", "groq"))
     local_llm_base_url: str = field(default_factory=lambda: _getenv("LOCAL_LLM_BASE_URL", ""))
     local_llm_model: str = field(
         default_factory=lambda: _getenv("LOCAL_LLM_MODEL", "qwen2.5:3b")
@@ -62,14 +64,14 @@ class Settings:
     local_llm_api_key: str = field(default_factory=lambda: _getenv("LOCAL_LLM_API_KEY", ""))
     local_whisper_url: str = field(default_factory=lambda: _getenv("LOCAL_WHISPER_URL", ""))
 
-    # Groq только если явно включён (лимит ~50 req/day на free tier)
+    # Резервный чат через Groq при local (для AI_PROVIDER=groq не нужен)
     groq_enabled: bool = field(
-        default_factory=lambda: _getenv("GROQ_ENABLED", "false").lower() in ("1", "true", "yes")
+        default_factory=lambda: _getenv("GROQ_ENABLED", "true").lower() in ("1", "true", "yes")
     )
 
     # Голос: STT и разбор намерения (без свободного ответа LLM)
     voice_stt_prefer_groq: bool = field(
-        default_factory=lambda: _getenv("GROQ_VOICE_STT", "false").lower() in ("1", "true", "yes")
+        default_factory=lambda: _getenv("GROQ_VOICE_STT", "true").lower() in ("1", "true", "yes")
     )
     groq_voice_intent: bool = field(
         default_factory=lambda: _getenv("GROQ_VOICE_INTENT", "false").lower() in ("1", "true", "yes")
@@ -153,20 +155,20 @@ class Settings:
 
     @property
     def effective_ai_provider(self) -> str:
-        provider = (self.ai_provider or "").lower()
-        if provider == "together" and self.is_together_configured:
-            return "together"
-        if provider == "local" and self.is_local_ai_configured:
-            return "local"
+        provider = (self.ai_provider or "groq").lower()
         if provider == "groq" and self.is_groq_configured:
             return "groq"
-        if self.is_together_configured:
+        if provider == "local" and self.is_local_ai_configured:
+            return "local"
+        if provider == "together" and self.is_together_configured:
             return "together"
         if self.is_groq_configured:
             return "groq"
         if self.is_local_ai_configured:
             return "local"
-        return provider or "none"
+        if self.is_together_configured:
+            return "together"
+        return provider if provider in ("groq", "local", "together") else "none"
 
     @property
     def is_local_ai_configured(self) -> bool:
@@ -185,12 +187,12 @@ class Settings:
 
     @property
     def is_voice_stt_configured(self) -> bool:
-        """Голосовые: достаточно Whisper (Together / VPS / Groq), чат-LLM не нужен."""
-        if self.is_together_configured:
+        """Голосовые: Groq Whisper, VPS faster-whisper или legacy Together."""
+        if self.is_groq_configured:
             return True
         if self.local_whisper_url:
             return True
-        if self.is_groq_configured:
+        if self.is_together_configured:
             return True
         return self.is_local_ai_configured
     

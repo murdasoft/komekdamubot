@@ -314,7 +314,7 @@ async def _transcribe_voice(
     filename: str = "voice.ogg",
     session: Dict | None = None,
 ) -> tuple[str | None, str]:
-    """STT: Together / VPS Whisper; Groq Whisper только при GROQ_VOICE_STT или fallback."""
+    """STT: Groq Whisper (основной), VPS faster-whisper, Together legacy."""
     settings = get_settings()
     return await transcribe_voice_message(
         audio_bytes,
@@ -568,11 +568,11 @@ async def _handle_ai_response_with_context(
         settings.groq_enabled and settings.is_groq_configured and provider != "together"
     )
 
-    if provider == "together" and ai:
-        response, err = await ai.chat(messages, temperature=0.5, max_tokens=max_tok)
-    elif use_groq and settings.is_groq_configured:
+    if use_groq and settings.is_groq_configured:
         groq = GroqClient(settings.groq_api_key, settings.groq_model, settings.groq_stt_model)
         response, err = await groq.chat(messages, temperature=0.6, max_tokens=max_tok)
+    elif provider == "together" and ai:
+        response, err = await ai.chat(messages, temperature=0.5, max_tokens=max_tok)
     elif ai:
         import asyncio
         try:
