@@ -28,6 +28,8 @@ from app.bot.stt_normalize import (
     normalize_stt_borrower_answer,
     stt_prompt_for_session,
 )
+from app.bot.voice_router import prepare_voice_input
+from app.bot.voice_stt import transcribe_voice_message
 from app.bot.faq_matcher import try_fast_response, is_pure_greeting
 from app.bot.loan_calc import calculate_loan_payment, format_calculator_result
 from app.bot.knowledge_base import (
@@ -53,6 +55,8 @@ from app.bot.telegram_nav import (
     use_buttons_hint,
 )
 from app.bot.wizard import (
+    get_city_invalid_reply,
+    get_city_step_help,
     get_city_step_text,
     get_lang_step_text,
     get_welcome_with_menu,
@@ -307,75 +311,23 @@ async def _transcribe_voice(
     filename: str = "voice.ogg",
     session: Dict | None = None,
 ) -> tuple[str | None, str]:
-    """Transcribe voice: local faster-whisper first; Groq only if GROQ_ENABLED=true."""
-    if not audio_bytes:
-        return None, lang_hint or DEFAULT_LANG
-
-    stt_prompt = stt_prompt_for_session(session)
-
-    langs_to_try: list[str | None] = []
-    for lang in (lang_hint, "ru", "kk", None):
-        if lang not in langs_to_try:
-            langs_to_try.append(lang)
-
+    """STT: Together / VPS Whisper; Groq Whisper только при GROQ_VOICE_STT или fallback."""
     settings = get_settings()
-    groq_first = (
-        settings.effective_ai_provider == "groq"
-        or (settings.groq_enabled and settings.is_groq_configured)
-    ) and settings.effective_ai_provider != "together"
+    return await transcribe_voice_message(
+        audio_bytes,
+        settings,
+        ai=ai,
+        lang_hint=lang_hint,
+        filename=filename,
+        session=session,
+    )
 
-    async def _try_local() -> tuple[str | None, str | None]:
-        if not ai:
-            return None, None
-        for lang in langs_to_try:
-            text, err = await ai.transcribe(
-                audio_bytes, language=lang, filename=filename, prompt=stt_prompt
-            )
-            if text:
-                return text, lang or ai.detect_language_simple(text)
-            if err:
-                logger.warning("Local Whisper failed lang=%s: %s", lang, err)
-        return None, None
 
-    async def _try_groq() -> tuple[str | None, str | None]:
-        if not settings.is_groq_configured:
-            return None, None
-        from app.groq_client import GroqClient
-        groq = GroqClient(
-            settings.groq_api_key,
-            model=settings.groq_model,
-            stt_model=settings.groq_stt_model,
-        )
-        for lang in langs_to_try:
-            text, err = await groq.transcribe(
-                audio_bytes, filename=filename, language=lang, prompt=stt_prompt
-            )
-            if text:
-                return text, lang or groq.detect_language_simple(text)
-            if err:
-                logger.warning("Groq STT failed lang=%s: %s", lang, err)
-        return None, None
-
-    if groq_first:
-        text, detected = await _try_groq()
-        if text:
-            logger.info("Voice via Groq STT (lang=%s): %s", detected, text[:60])
-            return text, detected or DEFAULT_LANG
-        text, detected = await _try_local()
-        if text:
-            logger.info("Voice via local STT fallback (lang=%s): %s", detected, text[:60])
-            return text, detected or DEFAULT_LANG
-    else:
-        text, detected = await _try_local()
-        if text:
-            logger.info("Voice via local STT (lang=%s): %s", detected, text[:60])
-            return text, detected or DEFAULT_LANG
-        text, detected = await _try_groq()
-        if text:
-            logger.info("Voice via Groq STT fallback (lang=%s): %s", detected, text[:60])
-            return text, detected or DEFAULT_LANG
-
-    return None, lang_hint or DEFAULT_LANG
+async def _voice_text_for_handler(transcribed: str, session: Dict) -> str:
+    """Разбор голоса → команда меню/FAQ (без свободного ответа LLM)."""
+    route = await prepare_voice_input(transcribed, session)
+    logger.info("Voice route source=%s text=%s", route.source, route.text[:60])
+    return route.text
 
 
 def _build_summary(data: Dict, product_key: str, lang: str) -> str:
@@ -1005,7 +957,7 @@ async def handle_telegram_update(
     # Handle voice message
     if is_voice_message(body):
         settings = get_settings()
-        if not settings.is_ai_configured and not settings.is_groq_configured:
+        if not settings.is_voice_stt_configured:
             await tg_client.send_message(
                 chat_id,
                 "Голосовые сообщения временно недоступны. Пожалуйста, напишите текстом."
@@ -1047,8 +999,7 @@ async def handle_telegram_update(
                         c in KK_CHARS for c in transcribed.lower()
                     ):
                         session["lang"] = "kk"
-                    session["state"] = "idle"
-                    text = normalize_stt_borrower_answer(transcribed.strip(), session)
+                    text = await _voice_text_for_handler(transcribed.strip(), session)
                     logger.info("Voice OK: lang=%s text=%s", session["lang"], text[:50])
                 elif transcribed:
                     await tg_client.send_message(chat_id, "Не расслышал. Повторите, пожалуйста.")
@@ -1335,7 +1286,7 @@ async def handle_whatsapp_update(
     if is_voice_message(body):
         settings = get_settings()
         lang_ui = session.get("lang", DEFAULT_LANG)
-        if not settings.is_ai_configured:
+        if not settings.is_voice_stt_configured:
             await send_wa_with_hint(
                 "🎤 Дауыстық хабарлама уақытша жоқ. Мәтінмен жазыңыз."
                 if lang_ui == "kk"
@@ -1375,7 +1326,7 @@ async def handle_whatsapp_update(
                     c in KK_CHARS for c in transcribed.lower()
                 ):
                     session["lang"] = "kk"
-                text = normalize_stt_borrower_answer(transcribed.strip(), session)
+                text = await _voice_text_for_handler(transcribed.strip(), session)
                 await save_session(chat_id, session)
                 logger.info("WA voice OK chat=%s: %s", chat_id, text[:60])
             else:
@@ -1463,7 +1414,25 @@ async def handle_whatsapp_update(
 
     # Шаг 2: город
     if session.get("state") == "selecting_city":
+        if text_stripped == "7":
+            session["state"] = "handoff"
+            session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
+            await send_wa_with_hint(
+                content.get_operator_message_with_phone(lang, None, "whatsapp"),
+                lang,
+            )
+            await _notify_manager(
+                f"🚨 *Менеджер на шаге города (WhatsApp)*\nPhone: `{chat_id}`\nСообщение: {text_stripped}",
+                chat_id,
+                "whatsapp",
+                session=session,
+            )
+            await save_session(chat_id, session)
+            return
+
         city_key = resolve_city_digit(text_stripped)
+        if not city_key:
+            city_key = detect_city(text_stripped)
         if city_key:
             session["city"] = city_key
             session["city_confirmed"] = True
@@ -1474,11 +1443,31 @@ async def handle_whatsapp_update(
                 session["lang"],
             )
             return
-        await send_wa_with_hint(
-            "📍 Жазыңыз *1–5* (қала)"
-            if lang == "kk"
-            else "📍 Напишите цифру *1–5* (город)"
-        )
+
+        lower = text_stripped.lower()
+        if any(
+            w in lower
+            for w in (
+                "номер",
+                "телефон",
+                "позвон",
+                "звон",
+                "менеджер",
+                "оператор",
+                "человек",
+                "маман",
+                "дайте",
+                "беріңіз",
+                "нөмір",
+            )
+        ):
+            await send_wa_with_hint(
+                content.get_operator_message_with_phone(lang, None, "whatsapp"),
+                lang,
+            )
+            return
+
+        await send_wa_with_hint(get_city_invalid_reply(lang), lang)
         return
 
     # 0 — главное меню (шаг 3), язык и город сохраняются
@@ -1487,6 +1476,8 @@ async def handle_whatsapp_update(
             await send_wa_with_hint(
                 get_welcome_with_menu(lang, session["city"], "whatsapp"), lang
             )
+        elif session.get("state") == "selecting_city":
+            await send_wa_with_hint(get_city_step_help(lang), lang)
         elif session.get("lang_locked"):
             session["state"] = "selecting_city"
             await send_wa_with_hint(get_city_step_text(lang), lang)

@@ -25,8 +25,21 @@ def test_nav_hint_has_98():
     assert "98" in WA_NAV_HINT_MAIN
     assert "99" not in wa_nav_hint_for_step("lang")
     assert wa_nav_hint_for_step("lang") == ""
-    assert "99" in wa_nav_hint_for_step("city")
+    city_hint = wa_nav_hint_for_step("city")
+    assert "99" in city_hint
+    assert "0" in city_hint
+    assert "98" in city_hint
     assert "98" in wa_nav_hint_for_step("main")
+
+
+def test_city_invalid_reply_has_manager_and_help():
+    from app.bot.wizard import get_city_invalid_reply, get_city_step_help
+
+    ru = get_city_invalid_reply("ru")
+    assert "7" in ru and "менеджер" in ru.lower()
+    assert "0" in ru
+    help_ru = get_city_step_help("ru")
+    assert "1–7" in help_ru or "1-7" in help_ru
 
 
 def test_lang_step_no_inline_99():

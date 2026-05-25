@@ -67,6 +67,19 @@ class Settings:
         default_factory=lambda: _getenv("GROQ_ENABLED", "false").lower() in ("1", "true", "yes")
     )
 
+    # Голос: STT и разбор намерения (без свободного ответа LLM)
+    voice_stt_prefer_groq: bool = field(
+        default_factory=lambda: _getenv("GROQ_VOICE_STT", "false").lower() in ("1", "true", "yes")
+    )
+    groq_voice_intent: bool = field(
+        default_factory=lambda: _getenv("GROQ_VOICE_INTENT", "false").lower() in ("1", "true", "yes")
+    )
+    groq_voice_intent_model: str = field(
+        default_factory=lambda: _getenv(
+            "GROQ_VOICE_INTENT_MODEL", "llama-3.1-8b-instant"
+        )
+    )
+
     # Мгновенные ответы из базы FAQ без вызова LLM
     fast_faq_enabled: bool = field(
         default_factory=lambda: _getenv("FAST_FAQ", "true").lower() in ("1", "true", "yes")
@@ -169,6 +182,17 @@ class Settings:
         if p == "groq":
             return self.is_groq_configured
         return False
+
+    @property
+    def is_voice_stt_configured(self) -> bool:
+        """Голосовые: достаточно Whisper (Together / VPS / Groq), чат-LLM не нужен."""
+        if self.is_together_configured:
+            return True
+        if self.local_whisper_url:
+            return True
+        if self.is_groq_configured:
+            return True
+        return self.is_local_ai_configured
     
     def get_ignored_chat_ids(self) -> List[str]:
         raw = self.ignored_chat_ids.strip()
