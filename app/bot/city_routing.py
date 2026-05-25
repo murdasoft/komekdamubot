@@ -1,5 +1,5 @@
 """
-Города без офиса → ближайшие офисы; универсальный ответ при непонятном тексте.
+Города без офиса → ближайшие офисы по расстоянию; универсальный ответ.
 """
 
 from __future__ import annotations
@@ -7,23 +7,7 @@ from __future__ import annotations
 import re
 
 from app.bot.formatting import CITY_OFFICES, format_offices_block
-
-# Ключевые слова населённого пункта → офисы (порядок = цифры 1, 2, …)
-_LOCALITY_NEARBY: tuple[tuple[str, ...], list[str]] = (
-    (("тараз", "taraz", "жамбыл"), ["almaty", "shymkent"]),
-    (("сарыагаш", "сарыағаш", "saryagash"), ["shymkent"]),
-    (("қызылорда", "кызылорда", "kyzylorda", "қызылордадан"), ["shymkent"]),
-    (("талгар", "talgar", "талгардан"), ["almaty"]),
-    (("қаскелең", "каскелен", "kaskelen", "қаскелеңнен"), ["almaty"]),
-    (("түркістан", "туркестан", "turkistan"), ["shymkent"]),
-    (("караганда", "қарағанды", "karaganda"), ["almaty", "astana"]),
-    (("павлодар", "pavlodar"), ["astana"]),
-    (("костанай", "қостанай", "kostanay"), ["astana"]),
-    (("уральск", "oral"), ["atyrau"]),
-    (("семей", "semei"), ["almaty", "astana"]),
-    (("петропавл", "petropavl"), ["astana"]),
-    (("кокшетау", "көкшетау"), ["astana"]),
-)
+from app.bot.kz_geo import resolve_nearby_from_text
 
 _PLACE_SUFFIX = re.compile(
     r"(данмын|денмін|тенмін|нен|нан|ден|дан|тен|даны|дены|боламын|"
@@ -42,29 +26,14 @@ def _city_display(key: str, lang: str) -> str:
     return o["name_kk"] if lang == "kk" else o["name_ru"]
 
 
-def detect_nearby_offices(text: str) -> tuple[str, list[str]] | None:
-    """
-    Населённый пункт без своего офиса → (как показать пользователю, [almaty, …]).
-    """
+def detect_nearby_offices(
+    text: str, lang: str = "ru"
+) -> tuple[str, list[str], list[int]] | None:
+    """Населённый пункт без офиса → ближайшие 1–2 офиса (по км)."""
     low = _normalize(text)
-    if not low or len(low) < 3:
+    if not low or len(low) < 3 or len(low.split()) > 6:
         return None
-    if len(low.split()) > 6:
-        return None
-
-    best: tuple[int, str, list[str]] | None = None
-    for keywords, offices in _LOCALITY_NEARBY:
-        for kw in keywords:
-            if kw in low and (best is None or len(kw) > best[0]):
-                label = kw.strip().title()
-                if kw.startswith("тараз"):
-                    label = "Тараз" if "taraz" not in kw else "Taraz"
-                best = (len(kw), label, offices)
-
-    if best:
-        return best[1], best[2]
-
-    return None
+    return resolve_nearby_from_text(text, lang)
 
 
 def looks_like_place_only(text: str) -> bool:
@@ -85,16 +54,21 @@ def looks_like_place_only(text: str) -> bool:
     return False
 
 
-def format_nearby_offices_reply(place: str, office_keys: list[str], lang: str) -> str:
+def format_nearby_offices_reply(
+    place: str, office_keys: list[str], lang: str, *, distances_km: list[int] | None = None
+) -> str:
     lines: list[str] = []
     if lang == "kk":
         lines.append(f"📍 *{place}* — біздің кеңсе жоқ.")
-        lines.append("Жақын офистер:")
+        lines.append("Жақын офистер (қашықтық бойынша):")
     else:
         lines.append(f"📍 В *{place}* нашего офиса нет.")
-        lines.append("Ближайшие города с офисом:")
+        lines.append("Ближайшие офисы (по расстоянию):")
     for i, key in enumerate(office_keys, start=1):
-        lines.append(f"{i} — {_city_display(key, lang)}")
+        extra = ""
+        if distances_km and i - 1 < len(distances_km):
+            extra = f" (~{distances_km[i - 1]} км)"
+        lines.append(f"{i} — {_city_display(key, lang)}{extra}")
     if lang == "kk":
         lines.append("\nЖақын қаланы *санмен* таңдаңыз немесе *98* — қалалар тізімі.")
     else:
@@ -115,9 +89,5 @@ def get_universal_fallback_reply(lang: str, *, platform: str = "whatsapp") -> st
             "ℹ️ Не до конца понял ваш запрос.\n"
             "Позвоните в ближайший офис или приезжайте:\n\n"
         )
-    tail = (
-        "\n\n*7* — менеджер"
-        if lang == "kk"
-        else "\n\n*7* — менеджер"
-    )
+    tail = "\n\n*7* — менеджер"
     return f"{lead}{offices}{tail}"
