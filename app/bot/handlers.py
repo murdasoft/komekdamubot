@@ -350,7 +350,44 @@ async def _send_voice_text_nudge(
 ) -> None:
     if not session.pop("from_voice", False):
         return
-    await send_fn(pick_voice_text_nudge(lang, chat_id))
+    try:
+        await send_fn(pick_voice_text_nudge(lang, chat_id))
+    except Exception:
+        logger.exception("Voice text nudge failed chat=%s", chat_id)
+
+
+def _ensure_session_defaults(session: Dict) -> None:
+    if "conversation_history" not in session:
+        session["conversation_history"] = []
+    if "message_count" not in session:
+        session["message_count"] = 0
+
+
+async def _tg_reply_credit_clarify(
+    tg_client,
+    chat_id: str,
+    session: Dict,
+) -> None:
+    """Telegram: кредит без уточнения — кнопки главного меню (не «напишите цифру»)."""
+    lang = session.get("lang", DEFAULT_LANG)
+    _ensure_session_defaults(session)
+    if session.get("city_confirmed") and session.get("city"):
+        lead = (
+            "🤖 *Чат-бот понял:* нужен кредит. Нажмите кнопку раздела ниже 👇"
+            if lang == "ru"
+            else "🤖 *Чат-бот түсінді:* несие керек. Төмендегі түймені басыңыз 👇"
+        )
+        try:
+            await tg_client.send_message(chat_id, lead)
+        except Exception:
+            logger.exception("TG credit clarify lead failed chat=%s", chat_id)
+        await render_screen(
+            tg_client, chat_id, session, "main", message_id=session.get("menu_message_id")
+        )
+    else:
+        await tg_client.send_message(chat_id, get_credit_choice_menu(lang))
+    await _send_voice_text_nudge(session, chat_id, lang, tg_client.send_message)
+    await _save_session_logged(chat_id, session)
 
 
 async def _save_session_logged(chat_id: str, session: Dict) -> bool:
@@ -1048,13 +1085,13 @@ async def handle_telegram_update(
     chat_id, _, _, _ = extract_update_info(body)
     try:
         return await _handle_telegram_update_inner(body, tg_client, ai)
-    except Exception:
-        logger.exception("CRITICAL: handle_telegram_update crashed chat=%s", chat_id)
+    except Exception as exc:
+        logger.exception("CRITICAL: handle_telegram_update crashed chat=%s: %s", chat_id, exc)
         if chat_id:
             try:
                 await tg_client.send_message(
                     chat_id,
-                    "Произошла ошибка. Напишите /start чтобы начать заново."
+                    "⚠️ Сбой обработки. Нажмите /start или выберите кнопку в меню выше."
                 )
             except Exception:
                 pass
@@ -1197,12 +1234,18 @@ async def _handle_telegram_update_inner(
 
     if not text:
         return
-    
+
     text_stripped = text.strip()
     lang = session.get("lang", DEFAULT_LANG)
-    
+    _ensure_session_defaults(session)
+
     # Handle /start or menu return
     if text_stripped in ["/start", "/menu", "меню", "главное меню", "басты мәзір"]:
+        return
+
+    # Голос/текст «хочу кредит» — сразу меню (до приветствий и small talk)
+    if session.get("state") == "idle" and is_vague_credit_request(text_stripped):
+        await _tg_reply_credit_clarify(tg_client, chat_id, session)
         return
 
     # Selecting language: цифра 1/2 или слова «Қазақша» / «русский»; город «Алматы» — сразу в меню
@@ -1231,9 +1274,7 @@ async def _handle_telegram_update_inner(
             session["lang"] = _detect_lang_from_free_text(text_stripped) or lang
             session["lang_locked"] = True
             session["state"] = "idle"
-            await tg_client.send_message(chat_id, get_credit_choice_menu(session["lang"]))
-            await _send_voice_text_nudge(session, chat_id, session["lang"], tg_client.send_message)
-            await _save_session_logged(chat_id, session)
+            await _tg_reply_credit_clarify(tg_client, chat_id, session)
             return
         attempt = session.get("lang_retry", 0)
         session["lang_retry"] = attempt + 1
@@ -1281,15 +1322,12 @@ async def _handle_telegram_update_inner(
         )
         return
     
-    # Store message in conversation history for context
     session["conversation_history"].append({
         "role": "user",
         "text": text_stripped,
-        "timestamp": time.time()
+        "timestamp": time.time(),
     })
-    # Keep only last 10 messages for context
     session["conversation_history"] = session["conversation_history"][-10:]
-    
     session["message_count"] = session.get("message_count", 0) + 1
     platform = session.get("platform", "tg")
     
@@ -1318,8 +1356,8 @@ async def _handle_telegram_update_inner(
     # Log message to database
     await log_message(chat_id, platform, "user", text_stripped, lang)
     
-    # Check for small talk (random responses)
-    if session.get("state") == "idle" and (
+    # Check for small talk (не перехватывать «салам, хочу кредит»)
+    if session.get("state") == "idle" and not is_vague_credit_request(text_stripped) and (
         is_pure_greeting(text_stripped) or detect_small_talk_intent(text_stripped) == "greeting"
     ):
         if not session.get("lang_locked"):
@@ -1392,11 +1430,6 @@ async def _handle_telegram_update_inner(
             )
             await _save_session_logged(chat_id, session)
             return
-        if session.get("city_confirmed") and is_vague_credit_request(text_stripped):
-            await tg_client.send_message(chat_id, get_credit_choice_menu(lang))
-            await _send_voice_text_nudge(session, chat_id, lang, tg_client.send_message)
-            await _save_session_logged(chat_id, session)
-            return
         ai_response = await _get_bot_reply(text_stripped, session, ai)
         if ai_response:
             # Extract control tags
@@ -1456,7 +1489,13 @@ async def _handle_telegram_update_inner(
     # Умный маппинг фраз → цифры (как в WhatsApp): "ипотека" → "4"
     from app.bot.voice_router import map_menu_phrase
     phrase_digit = map_menu_phrase(text_stripped)
-    if phrase_digit and phrase_digit not in ("0", "98", "99") and session.get("city_confirmed"):
+    word_count = len(text_stripped.split())
+    if (
+        phrase_digit
+        and phrase_digit not in ("0", "98", "99")
+        and session.get("city_confirmed")
+        and word_count <= 6
+    ):
         ai_response = await _get_bot_reply(phrase_digit, session, ai)
         if ai_response:
             session["conversation_history"].append({
