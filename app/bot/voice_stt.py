@@ -154,7 +154,8 @@ async def transcribe_voice_message(
     session: dict | None = None,
 ) -> tuple[str | None, str]:
     """
-    Лучший транскрипт из RU/KK прогонов. Без вызова LLM-чата.
+    Быстрый STT: Groq (1-2 попытки) → Together fallback.
+    Макс 3 HTTP-запроса чтобы влезть в Vercel 60-сек лимит.
     """
     if not audio_bytes:
         return None, lang_hint or "kk"
@@ -163,56 +164,29 @@ async def transcribe_voice_message(
     extra = stt_prompt_for_session(session)
     prompt = f"{base_prompt} {extra}" if extra else base_prompt
 
-    langs: list[str | None] = []
-    for lang in (lang_hint, "ru", "kk", None):
-        if lang not in langs:
-            langs.append(lang)
+    # Попытка 1: Groq с автоопределением языка (None = auto)
+    if settings.is_groq_configured:
+        text, det = await _try_groq(settings, audio_bytes, filename, None, prompt)
+        if text and text.strip():
+            detected = det or detect_language_simple(text)
+            logger.info("Voice STT Groq auto lang=%s text=%s", detected, text[:50])
+            return text.strip(), detected
 
-    providers: list[str] = []
-    if settings.voice_stt_prefer_groq or settings.is_groq_configured:
-        providers = ["groq", "local_url", "ai", "together"]
-    elif settings.local_whisper_url:
-        providers = ["local_url", "ai", "groq", "together"]
-    else:
-        providers = ["groq", "local_url", "ai", "together"]
+    # Попытка 2: Groq с подсказкой языка
+    if settings.is_groq_configured and lang_hint:
+        text, det = await _try_groq(settings, audio_bytes, filename, lang_hint, prompt)
+        if text and text.strip():
+            detected = det or lang_hint
+            logger.info("Voice STT Groq hint=%s text=%s", detected, text[:50])
+            return text.strip(), detected
 
-    best_text: str | None = None
-    best_lang = lang_hint or "kk"
-    best_score = 0
+    # Попытка 3: Together fallback
+    if settings.is_together_configured:
+        text, det = await _try_together(settings, audio_bytes, filename, lang_hint, prompt)
+        if text and text.strip():
+            detected = det or lang_hint or detect_language_simple(text)
+            logger.info("Voice STT Together lang=%s text=%s", detected, text[:50])
+            return text.strip(), detected
 
-    for provider in providers:
-        for lang in langs:
-            if provider == "together":
-                text, det = await _try_together(settings, audio_bytes, filename, lang, prompt)
-            elif provider == "local_url":
-                text, det = await _try_local_url(settings, audio_bytes, filename, lang, prompt)
-            elif provider == "ai":
-                text, det = await _try_ai_client(ai, audio_bytes, filename, lang, prompt)
-            else:
-                text, det = await _try_groq(settings, audio_bytes, filename, lang, prompt)
-
-            if not text:
-                continue
-            sc = _score_transcript(text, lang)
-            if sc > best_score:
-                best_score = sc
-                best_text = text
-                best_lang = det or lang or detect_language_simple(text)
-                logger.info(
-                    "Voice STT pick provider=%s lang=%s score=%s text=%s",
-                    provider,
-                    lang,
-                    sc,
-                    text[:50],
-                )
-
-    if best_text:
-        return best_text.strip(), best_lang
-
-    if settings.is_groq_configured and not settings.voice_stt_prefer_groq:
-        for lang in langs:
-            text, det = await _try_groq(settings, audio_bytes, filename, lang, prompt)
-            if text:
-                return text.strip(), det or lang_hint or "kk"
-
+    logger.warning("Voice STT: all providers failed")
     return None, lang_hint or "kk"
