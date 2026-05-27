@@ -1046,7 +1046,7 @@ async def _handle_telegram_update_inner(
             file_url = get_file_url(settings.telegram_bot_token, file_path)
 
             import httpx
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 r = await client.get(file_url)
                 audio_bytes = r.content
 
