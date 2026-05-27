@@ -69,28 +69,42 @@ class LocalAIClient:
         language: str | None = None,
         prompt: str | None = None,
     ) -> tuple[str | None, str | None]:
-        _ = prompt
-        url = f"{self.whisper_url}/transcribe"
-        files = {"file": (filename, io.BytesIO(audio_bytes), "application/octet-stream")}
-        data = {}
-        if language:
-            data["language"] = language
+        # Try OpenAI-compatible API first (/v1/audio/transcriptions)
+        # Then fallback to custom /transcribe endpoint
+        for endpoint in ("/v1/audio/transcriptions", "/transcribe"):
+            url = f"{self.whisper_url}{endpoint}"
+            files = {"file": (filename, io.BytesIO(audio_bytes), "application/octet-stream")}
+            data: dict[str, str] = {}
+            if language:
+                data["language"] = language
+            if prompt and endpoint == "/v1/audio/transcriptions":
+                data["prompt"] = prompt
+            if endpoint == "/v1/audio/transcriptions":
+                data["model"] = "small"
 
-        try:
-            async with httpx.AsyncClient(timeout=180.0) as client:
-                r = await client.post(url, files=files, data=data or None)
-                r.raise_for_status()
-                result = r.json()
-                text = result.get("text", "").strip()
-                logger.info("Local Whisper result: '%s...' lang=%s", text[:50], language)
-                return text if text else None, None
-        except httpx.HTTPStatusError as e:
-            err = f"HTTP {e.response.status_code}: {e.response.text}"
-            logger.error("Local Whisper error: %s", err)
-            return None, err
-        except Exception as e:
-            logger.exception("Local Whisper exception")
-            return None, str(e)
+            try:
+                async with httpx.AsyncClient(timeout=180.0) as client:
+                    r = await client.post(url, files=files, data=data or None)
+                    if r.status_code == 404 and endpoint == "/v1/audio/transcriptions":
+                        continue
+                    r.raise_for_status()
+                    result = r.json()
+                    text = result.get("text", "").strip()
+                    logger.info("Local Whisper result: '%s...' lang=%s endpoint=%s", text[:50], language, endpoint)
+                    return text if text else None, None
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 404 and endpoint == "/v1/audio/transcriptions":
+                    continue
+                err = f"HTTP {e.response.status_code}: {e.response.text}"
+                logger.error("Local Whisper error: %s", err)
+                return None, err
+            except Exception as e:
+                if endpoint == "/v1/audio/transcriptions":
+                    logger.warning("Local Whisper OpenAI endpoint failed, trying /transcribe: %s", e)
+                    continue
+                logger.exception("Local Whisper exception")
+                return None, str(e)
+        return None, "All Whisper endpoints failed"
 
     def detect_language_simple(self, text: str) -> str:
         return detect_language_simple(text)

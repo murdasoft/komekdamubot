@@ -445,6 +445,38 @@ def _detect_lang(text: str) -> str:
 _detect_language = _detect_lang  # alias for tests
 
 
+def _detect_lang_from_free_text(text: str) -> str | None:
+    """Определить язык из свободного текста, когда клиент пишет слово вместо цифры.
+    
+    Возвращает 'kk', 'ru' или None если не удалось определить.
+    """
+    low = text.lower().strip()
+    
+    # Явные слова для казахского
+    kk_words = (
+        "қазақша", "казакша", "қазақ", "казак", "казахский", "казахском",
+        "qazaq", "qazaqsha", "kz", "каз",
+    )
+    # Явные слова для русского
+    ru_words = (
+        "русский", "русском", "русски", "рус", "орысша", "орыс",
+        "russian", "ru", "рус",
+    )
+    
+    for w in kk_words:
+        if w in low:
+            return "kk"
+    for w in ru_words:
+        if w in low:
+            return "ru"
+    
+    # Если текст содержит казахские символы → kk
+    if any(c in low for c in "әіңғүұқөһ"):
+        return "kk"
+    
+    return None
+
+
 def _update_session_lang(text: str, session: Dict) -> str:
     """Язык ответа: kk по умолчанию; ru только после явного выбора через 99."""
     _ = text
@@ -1437,14 +1469,26 @@ async def handle_whatsapp_update(
         return
 
     if session.get("state") == "selecting_lang":
+        # Умный парсинг: клиент пишет "Қазақша", "русский" вместо цифры
+        detected_lang = _detect_lang_from_free_text(text_stripped)
+        if detected_lang:
+            session["lang"] = detected_lang
+            session["lang_locked"] = True
+            session["state"] = "selecting_city"
+            await save_session(chat_id, session)
+            await send_wa_with_hint(get_city_step_text(session["lang"]), session["lang"])
+            return
         if should_use_universal_fallback(text_stripped):
             await send_wa_universal(lang)
             await save_session(chat_id, session)
             return
         await send_wa_with_hint(
-            "🌐 Жазыңыз *1* (қазақша) немесе *2* (орысша)"
-            if lang == "kk"
-            else "🌐 Напишите *1* (казахский) или *2* (русский)"
+            "🤖 Сіз чат-ботпен сөйлесіп тұрсыз.\n\n"
+            "Жазыңыз *1* (қазақша) немесе *2* (русский)\n"
+            "Бот тек сандарды түсінеді — *1* немесе *2* жазыңыз\n\n"
+            "🤖 Вы общаетесь с чат-ботом.\n\n"
+            "Напишите *1* (казахский) или *2* (русский)\n"
+            "Бот понимает только цифры — напишите *1* или *2*"
         )
         return
 
@@ -1558,6 +1602,13 @@ async def handle_whatsapp_update(
     # Handle WA digit menu
     if session.get("state") == "idle" or session.get("state") == "wa_menu":
         session.pop("nearby_pick", None)
+
+        # Умный маппинг: клиент пишет "ипотека" вместо "4"
+        from app.bot.voice_router import map_menu_phrase
+        phrase_digit = map_menu_phrase(text_stripped)
+        if phrase_digit and phrase_digit not in ("0", "98", "99"):
+            text_stripped = phrase_digit
+
         # Check for mortgage submenu
         if session.get("submenu") == "mortgage":
             mapped = content.WA_MORTGAGE_DIGIT_MAP.get(text_stripped)

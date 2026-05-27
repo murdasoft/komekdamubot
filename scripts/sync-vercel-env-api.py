@@ -95,30 +95,34 @@ def main() -> None:
         "WEBHOOK_BASE_URL": "https://komek-damu-bot.vercel.app",
         "AI_PROVIDER": "groq",
         "GROQ_ENABLED": "true",
-        "GROQ_MODEL": "openai/gpt-oss-120b",
+        "GROQ_MODEL": "llama-3.3-70b-versatile",
         "GROQ_STT_MODEL": "whisper-large-v3",
         "GROQ_VOICE_STT": "true",
         "GROQ_VOICE_INTENT": "false",
+        "GROQ_VOICE_INTENT_MODEL": "llama-3.1-8b-instant",
         "FAST_FAQ": "true",
         "GREEN_API_URL": "https://7107.api.greenapi.com",
         "REMINDER_DELAY_SECONDS": "3600",
         "ORDER_ABANDON_NUDGE_SECONDS": "1800",
         "HANDOFF_TIMEOUT_HOURS": "24",
         "LOCAL_LLM_MAX_TOKENS": "256",
+        # Groq — основной (бесплатный)
+        "GROQ_API_KEY": local.get("GROQ_API_KEY", ""),
+        # Together — fallback если Groq лимит
+        "TOGETHER_API_KEY": local.get("TOGETHER_API_KEY", ""),
+        "TOGETHER_MODEL": "meta-llama/Meta-Llama-3.3-70B-Instruct-Turbo",
+        "TOGETHER_STT_MODEL": "openai/whisper-large-v3",
+        # Telegram
         "TELEGRAM_BOT_TOKEN": local.get("TELEGRAM_BOT_TOKEN", ""),
         "TELEGRAM_WEBHOOK_SECRET": local.get("TELEGRAM_WEBHOOK_SECRET", ""),
+        # WhatsApp
         "GREEN_API_INSTANCE_ID": local.get("GREEN_API_INSTANCE_ID", ""),
         "GREEN_API_TOKEN": local.get("GREEN_API_TOKEN", ""),
         "GREEN_API_WEBHOOK_TOKEN": local.get("GREEN_API_WEBHOOK_TOKEN", ""),
-        "GROQ_API_KEY": local.get("GROQ_API_KEY", ""),
-        "GROQ_MODEL": local.get("GROQ_MODEL", "openai/gpt-oss-120b"),
-        "GROQ_STT_MODEL": local.get("GROQ_STT_MODEL", "whisper-large-v3"),
-        "SUPABASE_URL": supabase.get("SUPABASE_URL", ""),
-        "SUPABASE_SERVICE_ROLE_KEY": supabase.get("SUPABASE_SERVICE_ROLE_KEY", ""),
+        # Supabase
+        "SUPABASE_URL": supabase.get("SUPABASE_URL", "") or local.get("SUPABASE_URL", ""),
+        "SUPABASE_SERVICE_ROLE_KEY": supabase.get("SUPABASE_SERVICE_ROLE_KEY", "") or local.get("SUPABASE_SERVICE_ROLE_KEY", ""),
     }
-    if local.get("TOGETHER_API_KEY"):
-        desired["TOGETHER_API_KEY"] = local["TOGETHER_API_KEY"]
-
     _, data = api("GET", f"/v9/projects/{PROJECT}/env")
     existing = {e["key"]: e for e in data.get("envs", [])}
 
@@ -133,16 +137,9 @@ def main() -> None:
         if not value:
             print(f"SKIP {key}: no value")
             continue
-        if key in existing:
-            eid = existing[key]["id"]
-            code, resp = api("DELETE", f"/v9/projects/{PROJECT}/env/{eid}")
-            print(f"DELETE old {key}: {code}")
-            if code >= 400:
-                print(resp)
-                sys.exit(1)
         code, resp = api(
             "POST",
-            f"/v10/projects/{PROJECT}/env",
+            f"/v10/projects/{PROJECT}/env?upsert=true",
             {
                 "key": key,
                 "value": value,
@@ -150,7 +147,7 @@ def main() -> None:
                 "target": ["production", "preview"],
             },
         )
-        print(f"POST {key}: {code}")
+        print(f"UPSERT {key}: {code}")
         if code >= 400:
             print(resp)
             sys.exit(1)
