@@ -5,6 +5,7 @@ Supports: Telegram + WhatsApp, Russian + Kazakh, Voice messages.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -331,6 +332,144 @@ async def _voice_text_for_handler(transcribed: str, session: Dict) -> str:
     route = await prepare_voice_input(transcribed, session)
     logger.info("Voice route source=%s text=%s", route.source, route.text[:60])
     return route.text
+
+
+async def _save_session_logged(chat_id: str, session: Dict) -> bool:
+    ok = await save_session(chat_id, session)
+    if ok:
+        logger.info(
+            "save_session OK chat=%s state=%s lang=%s city=%s",
+            chat_id,
+            session.get("state"),
+            session.get("lang"),
+            session.get("city"),
+        )
+    else:
+        logger.warning("save_session FAILED chat=%s", chat_id)
+    return ok
+
+
+async def _process_tg_voice_message(
+    body: Dict[str, Any],
+    chat_id: str,
+    session: Dict,
+    tg_client,
+    ai: AIClient | None,
+) -> str | None:
+    """
+    Скачать аудио → STT → «Распознано».
+    Возвращает текст для дальнейшей обработки или None (ошибка уже отправлена).
+    """
+    from app.telegram_api import get_voice_file_id, get_file_url
+
+    settings = get_settings()
+    lang_ui = session.get("lang", DEFAULT_LANG)
+
+    if not settings.is_voice_stt_configured:
+        await tg_client.send_message(
+            chat_id,
+            "🎤 Голосовые временно недоступны. Напишите текстом."
+            if lang_ui == "ru"
+            else "🎤 Дауыстық хабарлама уақытша жоқ. Мәтінмен жазыңыз.",
+        )
+        await _save_session_logged(chat_id, session)
+        return None
+
+    await tg_client.send_message(
+        chat_id,
+        "🎤 Слушаю голосовое, секунду..."
+        if lang_ui == "ru"
+        else "🎤 Дауыстық хабарламаны тыңдап жатырмын...",
+    )
+
+    try:
+        file_id = get_voice_file_id(body)
+        logger.info("Voice TG: file_id=%s chat=%s", file_id, chat_id)
+        if not file_id:
+            raise ValueError("No voice/audio file_id")
+
+        file_info = await tg_client.get_file(file_id)
+        if not file_info or not file_info.get("result", {}).get("file_path"):
+            raise ValueError("Cannot get Telegram file path")
+        file_path = file_info["result"]["file_path"]
+        file_url = get_file_url(settings.telegram_bot_token, file_path)
+        logger.info("Voice TG: downloading path=%s", file_path)
+
+        import httpx
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(file_url)
+            r.raise_for_status()
+            audio_bytes = r.content
+        logger.info("Voice TG: downloaded %s bytes chat=%s", len(audio_bytes), chat_id)
+
+        lang_hint = (
+            session.get("lang") if session.get("lang") in ("ru", "kk") else DEFAULT_LANG
+        )
+        logger.info("Voice TG: STT started chat=%s lang_hint=%s", chat_id, lang_hint)
+        transcribed, detected_lang = await asyncio.wait_for(
+            _transcribe_voice(
+                audio_bytes,
+                ai,
+                lang_hint,
+                filename="voice.ogg",
+                session=session,
+            ),
+            timeout=45.0,
+        )
+        logger.info(
+            "Voice TG: STT result chat=%s lang=%s text=%s",
+            chat_id,
+            detected_lang,
+            (transcribed or "")[:80],
+        )
+
+        if not transcribed or not transcribed.strip():
+            await tg_client.send_message(
+                chat_id,
+                content.VOICE_STT_FAILED_RU
+                if lang_ui == "ru"
+                else content.VOICE_STT_FAILED_KK,
+            )
+            await _save_session_logged(chat_id, session)
+            return None
+
+        raw = transcribed.strip()
+        if not session.get("lang_locked") and any(c in KK_CHARS for c in raw.lower()):
+            session["lang"] = "kk"
+        cmd_text = await _voice_text_for_handler(raw, session)
+        logger.info("Voice TG: routed cmd=%s chat=%s", cmd_text[:60], chat_id)
+
+        rec_label = "Распознано" if lang_ui == "ru" else "Танылды"
+        await tg_client.send_message(chat_id, f"🖊 *{rec_label}:* {raw}")
+        logger.info("Voice TG: sent recognized preview chat=%s", chat_id)
+
+        if not session.get("lang_locked"):
+            auto_lang = detected_lang if detected_lang in ("ru", "kk") else DEFAULT_LANG
+            session["lang"] = auto_lang
+        await _save_session_logged(chat_id, session)
+        return cmd_text
+
+    except asyncio.TimeoutError:
+        logger.error("Voice TG: STT timeout chat=%s", chat_id)
+        await tg_client.send_message(
+            chat_id,
+            "Не удалось распознать голосовое вовремя. Попробуйте ещё раз или напишите текстом."
+            if lang_ui == "ru"
+            else "Дауыстықты уақытында тану мүмкін болмады. Қайта жіберіңіз немесе мәтінмен жазыңыз.",
+        )
+        await _save_session_logged(chat_id, session)
+        return None
+    except Exception:
+        logger.exception("Voice TG: ERROR chat=%s", chat_id)
+        await tg_client.send_message(
+            chat_id,
+            "Не удалось распознать голосовое. Попробуйте ещё раз или напишите текстом."
+            if lang_ui == "ru"
+            else "Дауыстықты тану мүмкін болмады. Қайта жіберіңіз немесе мәтінмен жазыңыз.",
+        )
+        await _save_session_logged(chat_id, session)
+        return None
 
 
 def _build_summary(data: Dict, product_key: str, lang: str) -> str:
@@ -1015,98 +1154,13 @@ async def _handle_telegram_update_inner(
             await tg_client.send_message(chat_id, note)
         return
     
-    # Handle voice message
+    # Handle voice message (voice + audio)
     if is_voice_message(body):
-        settings = get_settings()
-        lang_ui = session.get("lang", DEFAULT_LANG)
-        if not settings.is_voice_stt_configured:
-            await tg_client.send_message(
-                chat_id,
-                "🎤 Голосовые временно недоступны. Напишите текстом."
-                if lang_ui == "ru"
-                else "🎤 Дауыстық хабарлама уақытша жоқ. Мәтінмен жазыңыз."
-            )
-            await save_session(chat_id, session)
+        voice_text = await _process_tg_voice_message(body, chat_id, session, tg_client, ai)
+        if voice_text is None:
             return
-
-        await tg_client.send_message(
-            chat_id,
-            "🎤 Слушаю голосовое, секунду..."
-            if lang_ui == "ru" else "🎤 Дауыстық хабарламаны тыңдап жатырмын..."
-        )
-
-        try:
-            file_id = get_voice_file_id(body)
-            if not file_id:
-                raise ValueError("No voice file_id")
-            file_info = await tg_client.get_file(file_id)
-            if not file_info or not file_info.get("result", {}).get("file_path"):
-                raise ValueError("Cannot get file path")
-            file_path = file_info["result"]["file_path"]
-            file_url = get_file_url(settings.telegram_bot_token, file_path)
-
-            import httpx
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                r = await client.get(file_url)
-                audio_bytes = r.content
-
-            transcribed, detected_lang = await _transcribe_voice(
-                audio_bytes,
-                ai,
-                session.get("lang")
-                if session.get("lang") in ("ru", "kk")
-                else DEFAULT_LANG,
-                session=session,
-            )
-
-            logger.info("Voice result chat=%s: lang=%s text=%s", chat_id, detected_lang, transcribed)
-
-            if transcribed and transcribed.strip():
-                if not session.get("lang_locked") and any(
-                    c in KK_CHARS for c in transcribed.lower()
-                ):
-                    session["lang"] = "kk"
-                text = await _voice_text_for_handler(transcribed.strip(), session)
-                logger.info("Voice OK: lang=%s text=%s", session["lang"], text[:50])
-                await tg_client.send_message(
-                    chat_id, f"🖊 *Распознано:* {transcribed.strip()}"
-                )
-                # Голосовое распознано — автоматически продвигаем сессию
-                if not session.get("lang_locked"):
-                    auto_lang = detected_lang if detected_lang in ("ru", "kk") else DEFAULT_LANG
-                    session["lang"] = auto_lang
-                    session["lang_locked"] = True
-                if not session.get("city_confirmed"):
-                    from app.offices import detect_city
-                    found_city = detect_city(transcribed)
-                    if found_city:
-                        session["city"] = found_city
-                        session["city_confirmed"] = True
-                        session["state"] = "idle"
-                    elif session.get("state") in ("selecting_lang", "selecting_city"):
-                        session["state"] = "idle"
-                        session["city"] = "almaty"
-                        session["city_confirmed"] = True
-                await save_session(chat_id, session)
-            else:
-                await tg_client.send_message(
-                    chat_id,
-                    "Не расслышал. Повторите или напишите текстом."
-                    if lang_ui == "ru"
-                    else "Естілмеді. Қайталаңыз немесе мәтінмен жазыңыз."
-                )
-                await save_session(chat_id, session)
-                return
-        except Exception:
-            logger.exception("TG voice pipeline failed chat=%s", chat_id)
-            await tg_client.send_message(
-                chat_id,
-                "Ошибка обработки голосового. Отправьте ещё раз или напишите текстом."
-                if lang_ui == "ru"
-                else "Дауыстық хабарламада қате. Қайта жіберіңіз немесе мәтінмен жазыңыз."
-            )
-            await save_session(chat_id, session)
-            return
+        text = voice_text
+        logger.info("Voice TG: dispatching text=%s chat=%s", text[:60], chat_id)
     
     msg = body.get("message") or {}
     if not text and msg and (msg.get("photo") or msg.get("document")):
@@ -1231,8 +1285,15 @@ async def _handle_telegram_update_inner(
             await render_screen(tg_client, chat_id, session, "lang")
         return
 
-    if session.get("state") == "idle" and not session.get("city_confirmed"):
+    # Только приветствие без города — ведём в мастер; голос/вопрос не глушим
+    if (
+        session.get("state") == "idle"
+        and not session.get("city_confirmed")
+        and not session.get("lang_locked")
+        and is_pure_greeting(text_stripped)
+    ):
         await render_screen(tg_client, chat_id, session, "lang")
+        await _save_session_logged(chat_id, session)
         return
 
     # Log message to database

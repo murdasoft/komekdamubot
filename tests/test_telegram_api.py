@@ -117,6 +117,15 @@ class TestVoiceMessage:
             }
         }
         assert get_voice_file_id(update) == "voice_123"
+
+    def test_is_audio_message(self):
+        update = {
+            "message": {
+                "audio": {"file_id": "audio_456", "duration": 5}
+            }
+        }
+        assert is_voice_message(update) is True
+        assert get_voice_file_id(update) == "audio_456"
     
     def test_get_file_url(self):
         """Test generating file URL."""

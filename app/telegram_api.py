@@ -152,13 +152,15 @@ def get_message_id(body: dict[str, Any]) -> int | None:
 
 def is_voice_message(body: dict[str, Any]) -> bool:
     msg = body.get("message", {})
-    return "voice" in msg
+    return "voice" in msg or "audio" in msg
 
 
 def get_voice_file_id(body: dict[str, Any]) -> str | None:
     msg = body.get("message", {})
-    voice = msg.get("voice", {})
-    return voice.get("file_id")
+    if msg.get("voice"):
+        return msg["voice"].get("file_id")
+    audio = msg.get("audio", {})
+    return audio.get("file_id")
 
 
 def get_file_url(token: str, file_path: str) -> str:
