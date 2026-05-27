@@ -135,6 +135,7 @@ def _session_snapshot(session_data: dict[str, Any]) -> dict[str, Any]:
 
 def _row_to_session(row: dict[str, Any]) -> dict[str, Any]:
     session = _session_snapshot(_json_field(row.get("session_json"), {}))
+    # Merge DB columns (only those that actually exist in DB)
     session.update(
         {
             "platform": _normalize_platform(row.get("platform")),
@@ -144,7 +145,6 @@ def _row_to_session(row: dict[str, Any]) -> dict[str, Any]:
             "product": row.get("product"),
             "contact_name": row.get("contact_name"),
             "city": row.get("city"),
-            "city_confirmed": bool(row.get("city_confirmed", False)),
             "context_topic": row.get("context_topic"),
             "flow_step": row.get("flow_step"),
             "handoff_until": row.get("handoff_until") or 0,
@@ -153,10 +153,10 @@ def _row_to_session(row: dict[str, Any]) -> dict[str, Any]:
             "conversation_history": _json_field(row.get("conversation_history"), []),
         }
     )
-    # session_json wins for keys stored only there
+    # session_json wins for keys stored only there (city_confirmed, menu_message_id, etc.)
     extra = _json_field(row.get("session_json"), {})
     for key, value in extra.items():
-        if key not in session or session.get(key) in (None, {}, []):
+        if key not in session or session.get(key) in (None, {}, [], 0, False):
             session[key] = value
     return session
 
@@ -175,13 +175,13 @@ async def upsert_client(chat_id: str, session_data: dict[str, Any]) -> bool:
         "contact_name": session_data.get("contact_name"),
         "phone": phone,
         "city": session_data.get("city"),
-        "city_confirmed": bool(session_data.get("city_confirmed", False)),
         "lang": session_data.get("lang") or DEFAULT_LANG,
         "lang_locked": bool(session_data.get("lang_locked", False)),
         "last_product": session_data.get("product"),
         "last_state": session_data.get("state") or "idle",
         "context_topic": session_data.get("context_topic"),
         "metadata": {
+            "city_confirmed": bool(session_data.get("city_confirmed", False)),
             "message_count": session_data.get("message_count", 0),
             "handoff_until": session_data.get("handoff_until", 0),
             "flow_step": session_data.get("flow_step"),
@@ -219,7 +219,6 @@ async def save_session(chat_id: str, session_data: dict[str, Any]) -> bool:
         "product": session_data.get("product"),
         "contact_name": session_data.get("contact_name"),
         "city": session_data.get("city"),
-        "city_confirmed": bool(session_data.get("city_confirmed", False)),
         "context_topic": session_data.get("context_topic"),
         "flow_step": session_data.get("flow_step"),
         "handoff_until": session_data.get("handoff_until") or 0,
