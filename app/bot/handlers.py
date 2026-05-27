@@ -1068,6 +1068,26 @@ async def _handle_telegram_update_inner(
                     session["lang"] = "kk"
                 text = await _voice_text_for_handler(transcribed.strip(), session)
                 logger.info("Voice OK: lang=%s text=%s", session["lang"], text[:50])
+                await tg_client.send_message(
+                    chat_id, f"🖊 *Распознано:* {transcribed.strip()}"
+                )
+                # Голосовое распознано — автоматически продвигаем сессию
+                if not session.get("lang_locked"):
+                    auto_lang = detected_lang if detected_lang in ("ru", "kk") else DEFAULT_LANG
+                    session["lang"] = auto_lang
+                    session["lang_locked"] = True
+                if not session.get("city_confirmed"):
+                    from app.offices import detect_city
+                    found_city = detect_city(transcribed)
+                    if found_city:
+                        session["city"] = found_city
+                        session["city_confirmed"] = True
+                        session["state"] = "idle"
+                    elif session.get("state") in ("selecting_lang", "selecting_city"):
+                        session["state"] = "idle"
+                        session["city"] = "almaty"
+                        session["city_confirmed"] = True
+                await save_session(chat_id, session)
             else:
                 await tg_client.send_message(
                     chat_id,
