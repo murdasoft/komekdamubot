@@ -887,7 +887,33 @@ async def handle_telegram_update(
         extract_update_info, get_message_id,
         is_voice_message, get_voice_file_id, get_file_url
     )
-    
+
+    chat_id, _, _, _ = extract_update_info(body)
+    try:
+        return await _handle_telegram_update_inner(body, tg_client, ai)
+    except Exception:
+        logger.exception("CRITICAL: handle_telegram_update crashed chat=%s", chat_id)
+        if chat_id:
+            try:
+                await tg_client.send_message(
+                    chat_id,
+                    "Произошла ошибка. Напишите /start чтобы начать заново."
+                )
+            except Exception:
+                pass
+
+
+async def _handle_telegram_update_inner(
+    body: Dict[str, Any],
+    tg_client,
+    ai: AIClient | None,
+):
+    """Inner handler — all Telegram logic."""
+    from app.telegram_api import (
+        extract_update_info, get_message_id,
+        is_voice_message, get_voice_file_id, get_file_url
+    )
+
     chat_id, text, sender_name, callback_id = extract_update_info(body)
     if not chat_id:
         return
@@ -992,59 +1018,75 @@ async def handle_telegram_update(
     # Handle voice message
     if is_voice_message(body):
         settings = get_settings()
+        lang_ui = session.get("lang", DEFAULT_LANG)
         if not settings.is_voice_stt_configured:
             await tg_client.send_message(
                 chat_id,
-                "Голосовые сообщения временно недоступны. Пожалуйста, напишите текстом."
+                "🎤 Голосовые временно недоступны. Напишите текстом."
+                if lang_ui == "ru"
+                else "🎤 Дауыстық хабарлама уақытша жоқ. Мәтінмен жазыңыз."
             )
+            await save_session(chat_id, session)
             return
 
-        lang_ui = session.get("lang", DEFAULT_LANG)
         await tg_client.send_message(
             chat_id,
             "🎤 Слушаю голосовое, секунду..."
             if lang_ui == "ru" else "🎤 Дауыстық хабарламаны тыңдап жатырмын..."
         )
 
-        file_id = get_voice_file_id(body)
-        if file_id:
+        try:
+            file_id = get_voice_file_id(body)
+            if not file_id:
+                raise ValueError("No voice file_id")
             file_info = await tg_client.get_file(file_id)
-            if file_info and file_info.get("result", {}).get("file_path"):
-                file_path = file_info["result"]["file_path"]
-                file_url = get_file_url(settings.telegram_bot_token, file_path)
+            if not file_info or not file_info.get("result", {}).get("file_path"):
+                raise ValueError("Cannot get file path")
+            file_path = file_info["result"]["file_path"]
+            file_url = get_file_url(settings.telegram_bot_token, file_path)
 
-                import httpx
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    r = await client.get(file_url)
-                    audio_bytes = r.content
+            import httpx
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                r = await client.get(file_url)
+                audio_bytes = r.content
 
-                transcribed, detected_lang = await _transcribe_voice(
-                    audio_bytes,
-                    ai,
-                    session.get("lang")
-                    if session.get("lang") in ("ru", "kk")
-                    else DEFAULT_LANG,
-                    session=session,
+            transcribed, detected_lang = await _transcribe_voice(
+                audio_bytes,
+                ai,
+                session.get("lang")
+                if session.get("lang") in ("ru", "kk")
+                else DEFAULT_LANG,
+                session=session,
+            )
+
+            logger.info("Voice result chat=%s: lang=%s text=%s", chat_id, detected_lang, transcribed)
+
+            if transcribed and transcribed.strip():
+                if not session.get("lang_locked") and any(
+                    c in KK_CHARS for c in transcribed.lower()
+                ):
+                    session["lang"] = "kk"
+                text = await _voice_text_for_handler(transcribed.strip(), session)
+                logger.info("Voice OK: lang=%s text=%s", session["lang"], text[:50])
+            else:
+                await tg_client.send_message(
+                    chat_id,
+                    "Не расслышал. Повторите или напишите текстом."
+                    if lang_ui == "ru"
+                    else "Естілмеді. Қайталаңыз немесе мәтінмен жазыңыз."
                 )
-
-                logger.info("Voice result chat=%s: lang=%s text=%s", chat_id, detected_lang, transcribed)
-
-                if transcribed and transcribed.strip():
-                    if not session.get("lang_locked") and any(
-                        c in KK_CHARS for c in transcribed.lower()
-                    ):
-                        session["lang"] = "kk"
-                    text = await _voice_text_for_handler(transcribed.strip(), session)
-                    logger.info("Voice OK: lang=%s text=%s", session["lang"], text[:50])
-                elif transcribed:
-                    await tg_client.send_message(chat_id, "Не расслышал. Повторите, пожалуйста.")
-                    return
-                else:
-                    await tg_client.send_message(
-                        chat_id,
-                        content.LANG_DETECT_FAILED_RU if lang_ui == "ru" else content.LANG_DETECT_FAILED_KK
-                    )
-                    return
+                await save_session(chat_id, session)
+                return
+        except Exception:
+            logger.exception("TG voice pipeline failed chat=%s", chat_id)
+            await tg_client.send_message(
+                chat_id,
+                "Ошибка обработки голосового. Отправьте ещё раз или напишите текстом."
+                if lang_ui == "ru"
+                else "Дауыстық хабарламада қате. Қайта жіберіңіз немесе мәтінмен жазыңыз."
+            )
+            await save_session(chat_id, session)
+            return
     
     msg = body.get("message") or {}
     if not text and msg and (msg.get("photo") or msg.get("document")):
@@ -1071,14 +1113,66 @@ async def handle_telegram_update(
     if text_stripped in ["/start", "/menu", "меню", "главное меню", "басты мәзір"]:
         return
 
-    if session.get("state") in ("selecting_lang", "selecting_city"):
+    # Selecting language: accept digits AND free text (like WhatsApp)
+    if session.get("state") == "selecting_lang":
+        if text_stripped in ["1", "2"]:
+            session["lang"] = "kk" if text_stripped == "1" else "ru"
+            session["lang_locked"] = True
+            session["state"] = "selecting_city"
+            await render_screen(tg_client, chat_id, session, "city", message_id=session.get("menu_message_id"))
+            await save_session(chat_id, session)
+            return
+        detected_lang = _detect_lang_from_free_text(text_stripped)
+        if detected_lang:
+            session["lang"] = detected_lang
+            session["lang_locked"] = True
+            session["state"] = "selecting_city"
+            await render_screen(tg_client, chat_id, session, "city", message_id=session.get("menu_message_id"))
+            await save_session(chat_id, session)
+            return
+        # Try to detect city — user might skip lang step
+        found_city = detect_city(text_stripped)
+        if found_city:
+            # Auto-detect language from text
+            auto_lang = _detect_lang_from_free_text(text_stripped)
+            session["lang"] = auto_lang or DEFAULT_LANG
+            session["lang_locked"] = True
+            session["city"] = found_city
+            session["city_confirmed"] = True
+            session["state"] = "idle"
+            await render_screen(tg_client, chat_id, session, "main", message_id=session.get("menu_message_id"))
+            await save_session(chat_id, session)
+            return
         mid = session.get("menu_message_id")
+        hint = use_buttons_hint(lang) + "\n\nНапишите *1* (қазақша) или *2* (русский)"
         if mid:
-            await tg_client.edit_message(
-                chat_id, mid, use_buttons_hint(lang), reply_markup=None
-            )
+            await tg_client.edit_message(chat_id, mid, hint, reply_markup=None)
         else:
-            await tg_client.send_message(chat_id, use_buttons_hint(lang))
+            await tg_client.send_message(chat_id, hint)
+        await render_screen(tg_client, chat_id, session, "lang")
+        await save_session(chat_id, session)
+        return
+
+    # Selecting city: accept digits AND free text (like WhatsApp)
+    if session.get("state") == "selecting_city":
+        city_key = resolve_city_digit(text_stripped)
+        if not city_key:
+            city_key = detect_city(text_stripped)
+        if city_key:
+            session["city"] = city_key
+            session["city_confirmed"] = True
+            session["state"] = "idle"
+            await render_screen(tg_client, chat_id, session, "main", message_id=session.get("menu_message_id"))
+            await save_session(chat_id, session)
+            return
+        mid = session.get("menu_message_id")
+        hint = use_buttons_hint(lang)
+        if mid:
+            await tg_client.edit_message(chat_id, mid, hint, reply_markup=None)
+        else:
+            await tg_client.send_message(chat_id, hint)
+        await render_screen(tg_client, chat_id, session, "city")
+        await save_session(chat_id, session)
         return
     
     # Handle operator request
@@ -1252,6 +1346,21 @@ async def handle_telegram_update(
         session.pop("product", None)
         session.pop("flow_step", None)
 
+    # Умный маппинг фраз → цифры (как в WhatsApp): "ипотека" → "4"
+    from app.bot.voice_router import map_menu_phrase
+    phrase_digit = map_menu_phrase(text_stripped)
+    if phrase_digit and phrase_digit not in ("0", "98", "99") and session.get("city_confirmed"):
+        ai_response = await _get_bot_reply(phrase_digit, session, ai)
+        if ai_response:
+            session["conversation_history"].append({
+                "role": "assistant",
+                "text": ai_response,
+                "timestamp": time.time()
+            })
+            await tg_client.send_message(chat_id, ai_response)
+            await save_session(chat_id, session)
+            return
+
     ai_response = await _get_bot_reply(text_stripped, session, ai)
     if ai_response:
         session["conversation_history"].append({
@@ -1261,9 +1370,10 @@ async def handle_telegram_update(
         })
         await tg_client.send_message(chat_id, ai_response)
     else:
-        await tg_client.send_message(
-            chat_id, get_text_fallback_reply(lang, platform="telegram")
-        )
+        # Универсальный fallback — бот НИКОГДА не молчит
+        fallback = get_text_fallback_reply(lang, platform="telegram")
+        await tg_client.send_message(chat_id, fallback)
+    await save_session(chat_id, session)
 
 
 async def handle_whatsapp_update(
@@ -1271,7 +1381,30 @@ async def handle_whatsapp_update(
     wa_client,
     ai: AIClient | None,
 ):
-    """Handle WhatsApp (Green API) webhook update."""
+    """Handle WhatsApp (Green API) webhook update — crash-safe wrapper."""
+    from app.green_api import extract_green_info
+
+    chat_id, _, _, _ = extract_green_info(body)
+    try:
+        return await _handle_whatsapp_update_inner(body, wa_client, ai)
+    except Exception:
+        logger.exception("CRITICAL: handle_whatsapp_update crashed chat=%s", chat_id)
+        if chat_id:
+            try:
+                await wa_client.send_message(
+                    chat_id,
+                    "Произошла ошибка. Напишите *меню* чтобы начать заново."
+                )
+            except Exception:
+                pass
+
+
+async def _handle_whatsapp_update_inner(
+    body: Dict[str, Any],
+    wa_client,
+    ai: AIClient | None,
+):
+    """Inner WhatsApp handler — all logic."""
     from app.green_api import (
         extract_green_info,
         get_audio_filename,
@@ -1279,8 +1412,6 @@ async def handle_whatsapp_update(
         is_image_message,
         is_voice_message,
     )
-    import logging
-    logger = logging.getLogger(__name__)
 
     chat_id, text, sender_name, media_url = extract_green_info(body)
     logger.info(
