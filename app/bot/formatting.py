@@ -39,15 +39,6 @@ CITY_OFFICES = {
         "phone_tel": "+77058102881",
         "wa_display": "7 705 810 28 81",
     },
-    "atyrau": {
-        "name_ru": "Атырау",
-        "name_kk": "Атырау",
-        "address_ru": "Досмухамедова 139а, каб. 9",
-        "address_kk": "Досмухамедова 139а, 9 каб",
-        "phone_display": "8 706 686 83 00",
-        "phone_tel": "+77066868300",
-        "wa_display": "7 706 686 83 00",
-    },
     "aktau": {
         "name_ru": "Актау",
         "name_kk": "Ақтау",
@@ -59,7 +50,7 @@ CITY_OFFICES = {
     },
 }
 
-CITY_ORDER = ("astana", "almaty", "shymkent", "atyrau", "aktau")
+CITY_ORDER = ("astana", "almaty", "shymkent", "aktau")
 
 WORK_HOURS_RU = "🕐 *Часы работы:* ответы с 10:00 до 18:00"
 WORK_HOURS_KK = "🕐 *Жұмыс уақыты:* 10:00–18:00 аралығында жауап беріледі"
