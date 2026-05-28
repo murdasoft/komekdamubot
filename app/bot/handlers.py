@@ -1906,9 +1906,12 @@ async def _handle_whatsapp_update_inner(
             await send_wa_with_hint(get_text_fallback_reply(lang, platform="whatsapp"), lang)
             return
 
+    logger.warning("WA text=%s state=%s city_confirmed=%s", text_stripped, session.get("state"), session.get("city_confirmed"))
+
     # Handle WA digit menu
     if session.get("state") == "idle" or session.get("state") == "wa_menu":
         session.pop("nearby_pick", None)
+        logger.warning("WA DIGIT MENU BLOCK text=%s", text_stripped)
 
         if session.get("city_confirmed") and is_vague_credit_request(text_stripped):
             await send_wa_with_hint(get_credit_choice_menu(lang), lang)
@@ -1949,6 +1952,7 @@ async def _handle_whatsapp_update_inner(
         
         # Main menu digits 1–7
         mapped = content.WA_DIGIT_MAP.get(text_stripped)
+        logger.warning("WA digit mapped=%s for text=%s", mapped, text_stripped)
         if mapped == "operator":
             session["state"] = "handoff"
             session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
@@ -1966,12 +1970,14 @@ async def _handle_whatsapp_update_inner(
             await save_session(chat_id, session)
             return
         if mapped:
-            if await _send_menu_choice(
+            menu_ok = await _send_menu_choice(
                 mapped,
                 session,
                 lambda m, rl=lang: send_wa_with_hint(m, rl),
                 platform="whatsapp",
-            ):
+            )
+            logger.warning("WA _send_menu_choice returned=%s mapped=%s", menu_ok, mapped)
+            if menu_ok:
                 await save_session(chat_id, session)
                 return
     
