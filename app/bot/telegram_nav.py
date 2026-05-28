@@ -171,9 +171,53 @@ def get_screen(
         return screen_lang_text(), screen_lang_keyboard()
     if screen == "city":
         return screen_city_text(lang), screen_city_keyboard(lang)
-    if screen == "main" and city:
-        return screen_main_text(lang, city), screen_main_keyboard(lang)
+    if screen == "main":
+        use_city = city or "almaty"
+        return screen_main_text(lang, use_city), screen_main_keyboard(lang)
     return screen_lang_text(), screen_lang_keyboard()
+
+
+async def send_main_menu_message(
+    tg_client: Any,
+    chat_id: str,
+    session: dict,
+    *,
+    lead: str | None = None,
+    force_new: bool = False,
+) -> int | None:
+    """Главное меню с кнопками; одно сообщение (надёжно после голоса)."""
+    lang = session.get("lang", "kk")
+    city = session.get("city") or "almaty"
+    body, markup = get_screen("main", lang, city)
+    text = f"{lead}\n\n{body}" if lead else body
+    mid = None if force_new else session.get("menu_message_id")
+    if mid and not force_new:
+        ok = await tg_client.edit_message(chat_id, mid, text, reply_markup=markup)
+        if ok:
+            session["menu_message_id"] = mid
+            session["tg_screen"] = "main"
+            return mid
+    result = await tg_client.send_message(chat_id, text, reply_markup=markup)
+    new_mid = None
+    if result and result.get("ok") and result.get("result"):
+        new_mid = result["result"].get("message_id")
+    else:
+        logger.error(
+            "send_main_menu failed chat=%s ok=%s",
+            chat_id,
+            result.get("ok") if result else None,
+        )
+        plain = text.replace("*", "")
+        result2 = await tg_client.send_message(
+            chat_id, plain, parse_mode="", reply_markup=markup
+        )
+        if result2 and result2.get("ok") and result2.get("result"):
+            new_mid = result2["result"]["message_id"]
+    if new_mid:
+        session["menu_message_id"] = new_mid
+    session["tg_screen"] = "main"
+    session["city"] = city
+    return new_mid
 
 
 async def render_screen(
@@ -199,6 +243,14 @@ async def render_screen(
     mid = None
     if result and result.get("ok") and result.get("result"):
         mid = result["result"].get("message_id")
+    else:
+        logger.error("render_screen send failed chat=%s screen=%s", chat_id, screen)
+        plain = text.replace("*", "")
+        result2 = await tg_client.send_message(
+            chat_id, plain, parse_mode="", reply_markup=markup
+        )
+        if result2 and result2.get("ok") and result2.get("result"):
+            mid = result2["result"].get("message_id")
     if mid:
         session["menu_message_id"] = mid
     session["tg_screen"] = screen
