@@ -16,7 +16,6 @@ OFFICE_COORDS: dict[str, tuple[float, float]] = {
     "almaty": (43.239, 76.945),
     "astana": (51.169, 71.449),
     "shymkent": (42.320, 69.596),
-    "atyrau": (47.107, 51.923),
     "aktau": (43.651, 51.197),
 }
 
