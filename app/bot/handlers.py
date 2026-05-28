@@ -1618,37 +1618,37 @@ async def _handle_whatsapp_update_inner(
             nav_step="main",
         )
 
-    # Голосовое (audioMessage / voiceMessage)
+    # Голосовое (audioMessage / voiceMessage / pttMessage)
     if is_voice_message(body):
         settings = get_settings()
         lang_ui = session.get("lang", DEFAULT_LANG)
-        logger.info("WA voice handler START chat=%s stt_configured=%s", chat_id, settings.is_voice_stt_configured)
+        logger.warning("WA VOICE START chat=%s stt=%s", chat_id, settings.is_voice_stt_configured)
         if not settings.is_voice_stt_configured:
             logger.error("WA voice STT not configured!")
             await send_wa_with_hint(
-                "🎤 Дауыстық хабарлама уақытша жоқ. Мәтінмен жазыңыз."
+                "Дауыстық хабарлама уақытша жоқ. Мәтінмен жазыңыз."
                 if lang_ui == "kk"
-                else "🎤 Голосовые временно недоступны. Напишите текстом."
+                else "Голосовые временно недоступны. Напишите текстом."
             )
             return
 
         await send_wa_with_hint(
-            "🎤 Тыңдап жатырмын, секунду..."
+            "Тыңдап жатырмын, секунду..."
             if lang_ui == "kk"
-            else "🎤 Слушаю голосовое, секунду..."
+            else "Слушаю голосовое, секунду..."
         )
 
         id_message = body.get("idMessage", "")
         media_url = media_url or extract_media_download_url(body)
-        logger.info("WA voice: idMessage=%s media_url=%s", id_message, media_url[:60] if media_url else None)
+        logger.warning("WA VOICE id=%s url=%s", id_message, media_url[:60] if media_url else None)
         try:
-            logger.info("WA voice downloading chat=%s msg=%s", chat_id, id_message)
+            logger.warning("WA VOICE downloading chat=%s", chat_id)
             audio_bytes = await wa_client.download_incoming_file(
                 chat_id, id_message, media_url
             )
-            logger.info("WA voice downloaded chat=%s bytes=%s type=%s", chat_id, len(audio_bytes) if audio_bytes else 0, type(audio_bytes))
+            logger.warning("WA VOICE downloaded bytes=%s type=%s", len(audio_bytes) if audio_bytes else 0, type(audio_bytes))
             if not audio_bytes:
-                logger.error("WA voice download failed chat=%s msg=%s", chat_id, id_message)
+                logger.error("WA voice download failed chat=%s", chat_id)
                 await send_wa_with_hint(
                     "Файлды жүктей алмадым. Қайта жіберіңіз немесе мәтінмен жазыңыз."
                     if lang_ui == "kk"
@@ -1658,12 +1658,11 @@ async def _handle_whatsapp_update_inner(
 
             fname = get_audio_filename(body)
             lang_hint = session.get("lang")
-            logger.info("WA voice STT calling chat=%s lang=%s filename=%s", chat_id, lang_hint, fname)
+            logger.warning("WA VOICE STT calling lang=%s file=%s", lang_hint, fname)
             transcribed, detected_lang = await _transcribe_voice(
                 audio_bytes, ai, lang_hint, filename=fname, session=session
             )
-            logger.info("WA voice STT returned chat=%s: transcribed=%s detected_lang=%s", 
-                       chat_id, transcribed[:80] if transcribed else None, detected_lang)
+            logger.warning("WA VOICE STT result text=%s lang=%s", transcribed[:80] if transcribed else None, detected_lang)
             if transcribed and transcribed.strip():
                 if not session.get("lang_locked") and any(
                     c in KK_CHARS for c in transcribed.lower()
@@ -1672,9 +1671,9 @@ async def _handle_whatsapp_update_inner(
                 text = await _voice_text_for_handler(transcribed.strip(), session)
                 session["from_voice"] = True
                 await save_session(chat_id, session)
-                logger.info("WA voice SUCCESS chat=%s text=%s", chat_id, text[:60])
+                logger.warning("WA VOICE SUCCESS text=%s", text[:60])
             else:
-                logger.warning("WA voice STT EMPTY chat=%s — will show 'Не расслышал'", chat_id)
+                logger.warning("WA VOICE STT EMPTY — showing 'Не расслышал'")
                 await send_wa_with_hint(
                     content.VOICE_STT_FAILED_KK
                     if lang_ui == "kk"
@@ -1682,7 +1681,7 @@ async def _handle_whatsapp_update_inner(
                 )
                 return
         except Exception as e:
-            logger.exception("WA voice ERROR chat=%s msg=%s error=%s", chat_id, id_message, e)
+            logger.exception("WA VOICE ERROR chat=%s error=%s", chat_id, e)
             await send_wa_with_hint(
                 "Дауыстық хабарламада қате. Қайта жіберіңіз немесе мәтінмен жазыңыз."
                 if lang_ui == "kk"
