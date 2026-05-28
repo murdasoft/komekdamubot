@@ -1672,6 +1672,36 @@ async def _handle_whatsapp_update_inner(
                 session["from_voice"] = True
                 await save_session(chat_id, session)
                 logger.warning("WA VOICE SUCCESS text=%s", text[:60])
+                # Обрабатываем результат напрямую, не полагаясь на проваливание
+                voice_cmd = (text or "").strip()
+                if voice_cmd:
+                    mapped = content.WA_DIGIT_MAP.get(voice_cmd)
+                    if mapped and mapped != "operator":
+                        menu_ok = await _send_menu_choice(
+                            mapped, session,
+                            lambda m, rl=lang_ui: send_wa_with_hint(m, rl),
+                            platform="whatsapp",
+                        )
+                        if menu_ok:
+                            await save_session(chat_id, session)
+                            logger.warning("WA VOICE menu sent=%s", mapped)
+                            return
+                    # Пробуем фразовый маппинг
+                    from app.bot.voice_router import map_menu_phrase
+                    pd = map_menu_phrase(voice_cmd)
+                    if pd and pd not in ("0", "98", "99"):
+                        mapped2 = content.WA_DIGIT_MAP.get(pd)
+                        if mapped2 and mapped2 != "operator":
+                            menu_ok2 = await _send_menu_choice(
+                                mapped2, session,
+                                lambda m, rl=lang_ui: send_wa_with_hint(m, rl),
+                                platform="whatsapp",
+                            )
+                            if menu_ok2:
+                                await save_session(chat_id, session)
+                                logger.warning("WA VOICE phrase menu sent=%s", mapped2)
+                                return
+                    logger.warning("WA VOICE no menu match, falling through cmd=%s", voice_cmd)
             else:
                 logger.warning("WA VOICE STT EMPTY — showing 'Не расслышал'")
                 await send_wa_with_hint(
