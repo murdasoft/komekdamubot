@@ -65,6 +65,7 @@ from app.bot.menu import (
 from app.bot.telegram_nav import (
     handle_nav_callback,
     render_screen,
+    send_main_menu_message,
     use_buttons_hint,
 )
 from app.bot.wizard import (
@@ -368,24 +369,29 @@ async def _tg_reply_credit_clarify(
     chat_id: str,
     session: Dict,
 ) -> None:
-    """Telegram: кредит без уточнения — кнопки главного меню (не «напишите цифру»)."""
+    """Telegram: кредит — одно сообщение с inline-кнопками (не WA-цифры)."""
     lang = session.get("lang", DEFAULT_LANG)
     _ensure_session_defaults(session)
-    if session.get("city_confirmed") and session.get("city"):
-        lead = (
-            "🤖 *Чат-бот понял:* нужен кредит. Нажмите кнопку раздела ниже 👇"
+
+    if not session.get("city_confirmed"):
+        session["state"] = "selecting_city"
+        await render_screen(tg_client, chat_id, session, "city")
+        hint = (
+            "🤖 *Чат-бот:* сначала выберите город кнопкой 👇"
             if lang == "ru"
-            else "🤖 *Чат-бот түсінді:* несие керек. Төмендегі түймені басыңыз 👇"
+            else "🤖 *Чат-бот:* алдымен қалады таңдаңыз 👇"
         )
-        try:
-            await tg_client.send_message(chat_id, lead)
-        except Exception:
-            logger.exception("TG credit clarify lead failed chat=%s", chat_id)
-        await render_screen(
-            tg_client, chat_id, session, "main", message_id=session.get("menu_message_id")
-        )
+        await tg_client.send_message(chat_id, hint)
     else:
-        await tg_client.send_message(chat_id, get_credit_choice_menu(lang))
+        lead = (
+            "🤖 *Чат-бот понял:* нужен кредит.\n*Нажмите кнопку раздела:*"
+            if lang == "ru"
+            else "🤖 *Чат-бот түсінді:* несие керек.\n*Бөлім түймесін басыңыз:*"
+        )
+        await send_main_menu_message(
+            tg_client, chat_id, session, lead=lead, force_new=True
+        )
+
     await _send_voice_text_nudge(session, chat_id, lang, tg_client.send_message)
     await _save_session_logged(chat_id, session)
 
@@ -1612,7 +1618,9 @@ async def _handle_whatsapp_update_inner(
     if is_voice_message(body):
         settings = get_settings()
         lang_ui = session.get("lang", DEFAULT_LANG)
+        logger.info("WA voice handler START chat=%s stt_configured=%s", chat_id, settings.is_voice_stt_configured)
         if not settings.is_voice_stt_configured:
+            logger.error("WA voice STT not configured!")
             await send_wa_with_hint(
                 "🎤 Дауыстық хабарлама уақытша жоқ. Мәтінмен жазыңыз."
                 if lang_ui == "kk"
@@ -1628,11 +1636,13 @@ async def _handle_whatsapp_update_inner(
 
         id_message = body.get("idMessage", "")
         media_url = media_url or extract_media_download_url(body)
+        logger.info("WA voice: idMessage=%s media_url=%s", id_message, media_url[:60] if media_url else None)
         try:
-            logger.info("WA voice start chat=%s msg=%s", chat_id, id_message)
+            logger.info("WA voice downloading chat=%s msg=%s", chat_id, id_message)
             audio_bytes = await wa_client.download_incoming_file(
                 chat_id, id_message, media_url
             )
+            logger.info("WA voice downloaded chat=%s bytes=%s type=%s", chat_id, len(audio_bytes) if audio_bytes else 0, type(audio_bytes))
             if not audio_bytes:
                 logger.error("WA voice download failed chat=%s msg=%s", chat_id, id_message)
                 await send_wa_with_hint(
@@ -1643,10 +1653,13 @@ async def _handle_whatsapp_update_inner(
                 return
 
             fname = get_audio_filename(body)
-            logger.info("WA voice STT start chat=%s bytes=%s", chat_id, len(audio_bytes))
+            lang_hint = session.get("lang")
+            logger.info("WA voice STT calling chat=%s lang=%s filename=%s", chat_id, lang_hint, fname)
             transcribed, detected_lang = await _transcribe_voice(
-                audio_bytes, ai, session.get("lang"), filename=fname, session=session
+                audio_bytes, ai, lang_hint, filename=fname, session=session
             )
+            logger.info("WA voice STT returned chat=%s: transcribed=%s detected_lang=%s", 
+                       chat_id, transcribed[:80] if transcribed else None, detected_lang)
             if transcribed and transcribed.strip():
                 if not session.get("lang_locked") and any(
                     c in KK_CHARS for c in transcribed.lower()
@@ -1655,17 +1668,17 @@ async def _handle_whatsapp_update_inner(
                 text = await _voice_text_for_handler(transcribed.strip(), session)
                 session["from_voice"] = True
                 await save_session(chat_id, session)
-                logger.info("WA voice OK chat=%s: %s", chat_id, text[:60])
+                logger.info("WA voice SUCCESS chat=%s text=%s", chat_id, text[:60])
             else:
-                logger.warning("WA voice STT empty chat=%s", chat_id)
+                logger.warning("WA voice STT EMPTY chat=%s — will show 'Не расслышал'", chat_id)
                 await send_wa_with_hint(
                     content.VOICE_STT_FAILED_KK
                     if lang_ui == "kk"
                     else content.VOICE_STT_FAILED_RU
                 )
                 return
-        except Exception:
-            logger.exception("WA voice pipeline failed chat=%s msg=%s", chat_id, id_message)
+        except Exception as e:
+            logger.exception("WA voice ERROR chat=%s msg=%s error=%s", chat_id, id_message, e)
             await send_wa_with_hint(
                 "Дауыстық хабарламада қате. Қайта жіберіңіз немесе мәтінмен жазыңыз."
                 if lang_ui == "kk"
