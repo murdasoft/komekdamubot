@@ -1566,12 +1566,16 @@ async def _handle_whatsapp_update_inner(
     )
 
     chat_id, text, sender_name, media_url = extract_green_info(body)
-    logger.info(
-        "handle_whatsapp_update: chat_id=%s text=%s voice=%s sender=%s",
-        chat_id,
-        (text or "")[:40],
+    md = body.get("messageData") or {}
+    type_msg = md.get("typeMessage", "NO_TYPE")
+    logger.warning(
+        "WA body type=%s voice=%s img=%s text=%s chat=%s keys=%s",
+        type_msg,
         is_voice_message(body),
-        sender_name,
+        is_image_message(body),
+        (text or "")[:40],
+        chat_id,
+        list(body.keys())[:10],
     )
     if not chat_id:
         logger.warning("No chat_id extracted from body")
