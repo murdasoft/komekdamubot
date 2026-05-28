@@ -13,7 +13,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 # WhatsApp voice notes приходят как audioMessage + fileMessageData
-AUDIO_MESSAGE_TYPES = frozenset({"audioMessage", "voiceMessage"})
+AUDIO_MESSAGE_TYPES = frozenset({"audioMessage", "voiceMessage", "pttMessage"})
 
 
 class GreenApiClient:
