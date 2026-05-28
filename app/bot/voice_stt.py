@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 DOMAIN_STT_PROMPT = (
     "KOMEK DAMU. Кредит, ипотека, DAMU 12,6, несие, рефинансирование. "
     "ИП, ЖК, ТОО, жеке тұлға, физлицо. "
-    "Алматы, Астана, Шымкент, Атырау, Актау. "
+    "Алматы, Астана, Шымкент, Актау. "
     "Қазақша, орысша, процент, млн."
 )
 
@@ -126,6 +126,7 @@ async def _try_groq(
     prompt: str,
 ) -> tuple[str | None, str | None]:
     if not settings.is_groq_configured:
+        logger.warning("Groq not configured")
         return None, None
     from app.groq_client import GroqClient
 
@@ -134,13 +135,17 @@ async def _try_groq(
         model=settings.groq_model,
         stt_model=settings.groq_stt_model,
     )
+    logger.info("Groq STT API call: lang=%s model=%s bytes=%s", lang, settings.groq_stt_model, len(audio_bytes))
     text, err = await groq.transcribe(
         audio_bytes, filename=filename, language=lang, prompt=prompt
     )
+    logger.info("Groq STT API result: text=%s err=%s", text[:100] if text else None, err)
     if text:
         return text, lang or groq.detect_language_simple(text)
     if err:
-        logger.warning("Groq STT lang=%s: %s", lang, err)
+        logger.warning("Groq STT FAILED lang=%s: %s", lang, err)
+    else:
+        logger.warning("Groq STT returned EMPTY text (no error)")
     return None, None
 
 
@@ -166,19 +171,25 @@ async def transcribe_voice_message(
 
     # Попытка 1: Groq с автоопределением языка (None = auto)
     if settings.is_groq_configured:
+        logger.info("STT Groq auto start: bytes=%s prompt=%s", len(audio_bytes), prompt[:60])
         text, det = await _try_groq(settings, audio_bytes, filename, None, prompt)
+        logger.info("STT Groq auto result: text=%s det=%s", text[:80] if text else None, det)
         if text and text.strip():
             detected = det or detect_language_simple(text)
-            logger.info("Voice STT Groq auto lang=%s text=%s", detected, text[:50])
+            logger.info("Voice STT Groq auto SUCCESS lang=%s text=%s", detected, text[:50])
             return text.strip(), detected
+        logger.warning("STT Groq auto: empty or no text")
 
     # Попытка 2: Groq с подсказкой языка
     if settings.is_groq_configured and lang_hint:
+        logger.info("STT Groq hint start: lang_hint=%s", lang_hint)
         text, det = await _try_groq(settings, audio_bytes, filename, lang_hint, prompt)
+        logger.info("STT Groq hint result: text=%s det=%s", text[:80] if text else None, det)
         if text and text.strip():
             detected = det or lang_hint
-            logger.info("Voice STT Groq hint=%s text=%s", detected, text[:50])
+            logger.info("Voice STT Groq hint SUCCESS lang=%s text=%s", detected, text[:50])
             return text.strip(), detected
+        logger.warning("STT Groq hint: empty or no text")
 
     # Попытка 3: Together fallback
     if settings.is_together_configured:
