@@ -6,16 +6,15 @@ from __future__ import annotations
 
 from app.bot.formatting import CITY_OFFICES, format_office_city
 
-# 1 Алматы, 2 Астана, 3 Шымкент, 4 Атырау, 5 Актау
+# 1 Алматы, 2 Астана, 3 Шымкент, 4 Актау
 CITY_DIGIT_MAP: dict[str, str] = {
     "1": "almaty",
     "2": "astana",
     "3": "shymkent",
-    "4": "atyrau",
-    "5": "aktau",
+    "4": "aktau",
 }
 
-CITY_DIGIT_ORDER = ("almaty", "astana", "shymkent", "atyrau", "aktau")
+CITY_DIGIT_ORDER = ("almaty", "astana", "shymkent", "aktau")
 
 
 def resolve_city_digit(digit: str) -> str | None:
