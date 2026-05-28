@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 from typing import Any
 
 import httpx
@@ -79,8 +80,23 @@ class GroqClient:
         """
         url = f"{GROQ_API_BASE}/audio/transcriptions"
         
+        # Groq expects .opus for Ogg Opus files from WhatsApp
+        ext = os.path.splitext(filename)[1].lower()
+        if ext in (".ogg", ".oga"):
+            groq_filename = "audio.opus"
+            mime = "audio/opus"
+        elif ext == ".mp3":
+            groq_filename = "audio.mp3"
+            mime = "audio/mpeg"
+        else:
+            groq_filename = filename
+            mime = "audio/ogg"
+        
+        logger.info("Groq STT upload: filename=%s groq_name=%s mime=%s bytes=%s", 
+                     filename, groq_filename, mime, len(audio_bytes))
+        
         files = {
-            "file": (filename, io.BytesIO(audio_bytes), "audio/ogg"),
+            "file": (groq_filename, io.BytesIO(audio_bytes), mime),
         }
         data = {
             "model": self.stt_model,
