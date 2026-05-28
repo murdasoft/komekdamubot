@@ -72,17 +72,20 @@ def format_nearby_offices_reply(place: str, office_keys: list[str], lang: str) -
 
 
 def get_universal_fallback_reply(lang: str, *, platform: str = "whatsapp") -> str:
-    """Коротко: не понял + все офисы + навигация 0/98/99 внизу (через add_wa_back_hint)."""
+    """Не понял запрос — меню + офисы + навигация."""
+    from app.bot.menu import get_main_menu_text
+
     offices = format_offices_block(lang, platform=platform, with_header=False)  # type: ignore[arg-type]
+    menu = get_main_menu_text(lang)
     if lang == "kk":
         lead = (
             "ℹ️ Сұрақты толық түсінбедім.\n"
-            "Жақын офиске қоңырау шалыңыз немесе келіңіз:\n\n"
+            "Төмендегі нұсқалардан таңдаңыз немесе жақын офиске қоңырау шалыңыз:\n\n"
         )
     else:
         lead = (
             "ℹ️ Не до конца понял ваш запрос.\n"
-            "Позвоните в ближайший офис или приезжайте:\n\n"
+            "Выберите вариант ниже или позвоните в ближайший офис:\n\n"
         )
     tail = "\n\n*7* — менеджер"
-    return f"{lead}{offices}{tail}"
+    return f"{lead}{menu}\n\n{offices}{tail}"
