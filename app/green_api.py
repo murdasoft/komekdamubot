@@ -13,7 +13,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 # WhatsApp voice notes приходят как audioMessage + fileMessageData
-AUDIO_MESSAGE_TYPES = frozenset({"audioMessage", "voiceMessage", "pttMessage"})
+AUDIO_MESSAGE_TYPES = frozenset({"audioMessage", "voiceMessage", "pttMessage", "audio", "voice", "ptt"})
 
 
 class GreenApiClient:
@@ -44,6 +44,10 @@ class GreenApiClient:
                 r = await client.post(url, json=payload, headers=self._auth())
                 r.raise_for_status()
                 return r.json()
+        except httpx.HTTPStatusError as e:
+            resp_text = e.response.text[:500] if hasattr(e, 'response') else 'N/A'
+            logger.error("Green API send error %s: %s response=%s", e.response.status_code if hasattr(e, 'response') else '?', e, resp_text)
+            return None
         except Exception as e:
             logger.exception("Green API send error: %s", e)
             return None
