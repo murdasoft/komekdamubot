@@ -1674,32 +1674,46 @@ async def _handle_whatsapp_update_inner(
                 logger.warning("WA VOICE SUCCESS text=%s", text[:60])
                 # Обрабатываем результат напрямую, не полагаясь на проваливание
                 voice_cmd = (text or "").strip()
+                logger.warning("WA VOICE cmd='%s' len=%s isdigit=%s", voice_cmd, len(voice_cmd), voice_cmd.isdigit() if voice_cmd else False)
                 if voice_cmd:
+                    # Пробуем напрямую как цифру
                     mapped = content.WA_DIGIT_MAP.get(voice_cmd)
+                    logger.warning("WA VOICE direct mapped=%s for cmd=%s", mapped, voice_cmd)
                     if mapped and mapped != "operator":
-                        menu_ok = await _send_menu_choice(
-                            mapped, session,
-                            lambda m, rl=lang_ui: send_wa_with_hint(m, rl),
-                            platform="whatsapp",
-                        )
-                        if menu_ok:
+                        menu_body = menu_choice_body(mapped, lang_ui)
+                        logger.warning("WA VOICE body=%s... for mapped=%s", (menu_body or "")[:60], mapped)
+                        if menu_body:
+                            await send_wa_with_hint(menu_body, lang_ui)
                             await save_session(chat_id, session)
-                            logger.warning("WA VOICE menu sent=%s", mapped)
+                            logger.warning("WA VOICE DIRECT SENT mapped=%s", mapped)
                             return
+                        else:
+                            logger.error("WA VOICE menu_choice_body returned EMPTY for mapped=%s", mapped)
                     # Пробуем фразовый маппинг
                     from app.bot.voice_router import map_menu_phrase
                     pd = map_menu_phrase(voice_cmd)
+                    logger.warning("WA VOICE phrase mapped=%s for cmd=%s", pd, voice_cmd)
                     if pd and pd not in ("0", "98", "99"):
                         mapped2 = content.WA_DIGIT_MAP.get(pd)
                         if mapped2 and mapped2 != "operator":
-                            menu_ok2 = await _send_menu_choice(
-                                mapped2, session,
-                                lambda m, rl=lang_ui: send_wa_with_hint(m, rl),
-                                platform="whatsapp",
-                            )
-                            if menu_ok2:
+                            menu_body2 = menu_choice_body(mapped2, lang_ui)
+                            if menu_body2:
+                                await send_wa_with_hint(menu_body2, lang_ui)
                                 await save_session(chat_id, session)
-                                logger.warning("WA VOICE phrase menu sent=%s", mapped2)
+                                logger.warning("WA VOICE PHRASE DIRECT SENT mapped=%s", mapped2)
+                                return
+                    # Последняя попытка: извлечь цифру из словесного текста
+                    from app.bot.voice_router import extract_spoken_digit
+                    spoken = extract_spoken_digit(voice_cmd)
+                    logger.warning("WA VOICE spoken digit=%s for cmd=%s", spoken, voice_cmd)
+                    if spoken and spoken not in ("0", "98", "99"):
+                        mapped3 = content.WA_DIGIT_MAP.get(spoken)
+                        if mapped3 and mapped3 != "operator":
+                            menu_body3 = menu_choice_body(mapped3, lang_ui)
+                            if menu_body3:
+                                await send_wa_with_hint(menu_body3, lang_ui)
+                                await save_session(chat_id, session)
+                                logger.warning("WA VOICE SPOKEN DIRECT SENT mapped=%s", mapped3)
                                 return
                     logger.warning("WA VOICE no menu match, falling through cmd=%s", voice_cmd)
             else:
