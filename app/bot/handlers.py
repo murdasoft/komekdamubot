@@ -1569,13 +1569,14 @@ async def _handle_whatsapp_update_inner(
     md = body.get("messageData") or {}
     type_msg = md.get("typeMessage", "NO_TYPE")
     logger.warning(
-        "WA body type=%s voice=%s img=%s text=%s chat=%s keys=%s",
+        "WA body type=%s voice=%s img=%s text=%s chat=%s keys=%s md_keys=%s",
         type_msg,
         is_voice_message(body),
         is_image_message(body),
         (text or "")[:40],
         chat_id,
         list(body.keys())[:10],
+        list(md.keys())[:10],
     )
     if not chat_id:
         logger.warning("No chat_id extracted from body")
@@ -1619,7 +1620,11 @@ async def _handle_whatsapp_update_inner(
         )
 
     # Голосовое (audioMessage / voiceMessage / pttMessage)
-    if is_voice_message(body):
+    # Fallback: если есть fileMessageData без typeMessage — тоже считаем voice
+    has_file_data = bool(md.get("fileMessageData"))
+    is_voice = is_voice_message(body) or (has_file_data and not text)
+    logger.warning("WA voice check: is_voice=%s type=%s has_file=%s text_empty=%s", is_voice, type_msg, has_file_data, not text)
+    if is_voice:
         settings = get_settings()
         lang_ui = session.get("lang", DEFAULT_LANG)
         logger.warning("WA VOICE START chat=%s stt=%s", chat_id, settings.is_voice_stt_configured)
