@@ -1947,6 +1947,28 @@ async def _handle_whatsapp_update_inner(
         session.pop("nearby_pick", None)
 
     if session.get("state") == "idle":
+        # Voice-as-text fallback: пробуем FAQ для длинных текстов
+        core_idle = strip_leading_greeting(text_stripped)
+        fast_idle = try_fast_response(
+            core_idle, lang, session.get("city"), "whatsapp",
+            city_confirmed=session.get("city_confirmed", False),
+            session=session,
+        )
+        if fast_idle:
+            await send_wa_with_hint(fast_idle, lang)
+            await save_session(chat_id, session)
+            logger.warning("WA IDLE FAQ sent for text=%s", text_stripped[:40])
+            return
+        # Короткий voice transcription artifact → welcome
+        if len(text_stripped) < 25 and not text_stripped.isdigit():
+            from app.bot.text_utils import is_pure_greeting
+            if is_pure_greeting(text_stripped) or len(text_stripped.strip(".!? ")) < 15:
+                await send_wa_with_hint(
+                    get_welcome_with_menu(lang, session.get("city"), "whatsapp") if session.get("city")
+                    else content.get_wa_menu(lang), lang
+                )
+                logger.warning("WA IDLE greeting fallback for text=%s", text_stripped[:30])
+                return
         found_city = detect_city(text_stripped)
         if found_city:
             session["city"] = found_city
