@@ -72,12 +72,15 @@ class TogetherClient:
             ".mp3": "audio/mpeg",
             ".ogg": "audio/ogg",
             ".oga": "audio/ogg",
-            ".opus": "audio/opus",
+            ".opus": "audio/ogg",  # Together may not accept audio/opus
             ".wav": "audio/wav",
             ".flac": "audio/flac",
             ".m4a": "audio/mp4",
         }
         mime = mime_map.get(ext, "audio/ogg")
+        # Log file header for debugging
+        header = audio_bytes[:16] if audio_bytes else b""
+        logger.warning("Together STT upload: filename=%s mime=%s bytes=%s header=%s", filename, mime, len(audio_bytes), header.hex())
         files = {"file": (filename, io.BytesIO(audio_bytes), mime)}
         data = {"model": self.stt_model}
         if language:
