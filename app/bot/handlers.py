@@ -1720,6 +1720,21 @@ async def _handle_whatsapp_update_inner(
                                 await save_session(chat_id, session)
                                 logger.warning("WA VOICE SPOKEN DIRECT SENT mapped=%s", mapped3)
                                 return
+                    # Последняя попытка: обработать как FAQ если текст длинный
+                    if voice_cmd and len(voice_cmd) > 10:
+                        from app.bot.faq_matcher import try_fast_response
+                        from app.bot.stt_normalize import strip_leading_greeting
+                        core = strip_leading_greeting(voice_cmd)
+                        fast = try_fast_response(
+                            core, lang_ui, session.get("city"), "whatsapp",
+                            city_confirmed=session.get("city_confirmed", False),
+                            session=session,
+                        )
+                        if fast:
+                            await send_wa_with_hint(fast, lang_ui)
+                            await save_session(chat_id, session)
+                            logger.warning("WA VOICE FAQ sent for cmd=%s", voice_cmd[:50])
+                            return
                     logger.warning("WA VOICE no menu match, falling through cmd=%s", voice_cmd)
             else:
                 logger.warning("WA VOICE STT EMPTY — showing 'Не расслышал'")
@@ -1971,10 +1986,16 @@ async def _handle_whatsapp_update_inner(
             return
 
         # Умный маппинг: клиент пишет "ипотека" вместо "4"
-        from app.bot.voice_router import map_menu_phrase
+        from app.bot.voice_router import map_menu_phrase, extract_spoken_digit
         phrase_digit = map_menu_phrase(text_stripped)
         if phrase_digit and phrase_digit not in ("0", "98", "99"):
             text_stripped = phrase_digit
+        else:
+            # Voice-as-text fallback: извлекаем цифру из словесного текста
+            spoken = extract_spoken_digit(text_stripped)
+            logger.warning("WA text spoken_digit=%s for text=%s", spoken, text_stripped[:40])
+            if spoken and spoken not in ("0", "98", "99"):
+                text_stripped = spoken
 
         # Check for mortgage submenu
         if session.get("submenu") == "mortgage":
