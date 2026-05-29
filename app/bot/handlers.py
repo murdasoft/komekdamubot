@@ -1647,11 +1647,11 @@ async def _handle_whatsapp_update_inner(
         media_url = media_url or extract_media_download_url(body)
         logger.warning("WA VOICE id=%s url=%s", id_message, media_url[:60] if media_url else None)
         try:
-            logger.warning("WA VOICE downloading chat=%s", chat_id)
+            logger.warning("WA VOICE STEP 1: downloading chat=%s", chat_id)
             audio_bytes = await wa_client.download_incoming_file(
                 chat_id, id_message, media_url
             )
-            logger.warning("WA VOICE downloaded bytes=%s type=%s", len(audio_bytes) if audio_bytes else 0, type(audio_bytes))
+            logger.warning("WA VOICE STEP 2: downloaded bytes=%s type=%s", len(audio_bytes) if audio_bytes else 0, type(audio_bytes))
             if not audio_bytes:
                 logger.error("WA voice download failed chat=%s", chat_id)
                 await send_wa_with_hint(
@@ -1663,11 +1663,11 @@ async def _handle_whatsapp_update_inner(
 
             fname = get_audio_filename(body)
             lang_hint = session.get("lang")
-            logger.warning("WA VOICE STT calling lang=%s file=%s", lang_hint, fname)
+            logger.warning("WA VOICE STEP 3: STT calling lang=%s file=%s ai=%s", lang_hint, fname, ai is not None)
             transcribed, detected_lang = await _transcribe_voice(
                 audio_bytes, ai, lang_hint, filename=fname, session=session
             )
-            logger.warning("WA VOICE STT result text=%s lang=%s", transcribed[:80] if transcribed else None, detected_lang)
+            logger.warning("WA VOICE STEP 4: STT result text=%s lang=%s", transcribed[:80] if transcribed else None, detected_lang)
             if transcribed and transcribed.strip():
                 if not session.get("lang_locked") and any(
                     c in KK_CHARS for c in transcribed.lower()
@@ -1745,7 +1745,9 @@ async def _handle_whatsapp_update_inner(
                 )
                 return
         except Exception as e:
-            logger.exception("WA VOICE ERROR chat=%s error=%s", chat_id, e)
+            import traceback
+            tb = traceback.format_exc()
+            logger.error("WA VOICE EXCEPTION chat=%s error=%s\n%s", chat_id, e, tb[-500:])
             await send_wa_with_hint(
                 "Дауыстық хабарламада қате. Қайта жіберіңіз немесе мәтінмен жазыңыз."
                 if lang_ui == "kk"
