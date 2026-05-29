@@ -72,17 +72,20 @@ def format_nearby_offices_reply(place: str, office_keys: list[str], lang: str) -
 
 
 def get_universal_fallback_reply(lang: str, *, platform: str = "whatsapp") -> str:
-    """Коротко: не понял + все офисы + навигация 0/98/99 внизу."""
+    """Универсальный fallback: телефон + офисы + меню."""
     offices = format_offices_block(lang, platform=platform, with_header=False)  # type: ignore[arg-type]
     if lang == "kk":
-        lead = (
-            "ℹ️ Сұрақты толық түсінбедім.\n"
+        return (
+            "ℹ️ Сұрақты толық түсінбедім.\n\n"
+            "☎️ *Тездету: 8 707 339 10 39*\n"
             "Жақын офиске қоңырау шалыңыз немесе келіңіз:\n\n"
+            f"{offices}\n\n"
+            "*7* — менеджер | *0* — мәзір"
         )
-    else:
-        lead = (
-            "ℹ️ Не до конца понял ваш запрос.\n"
-            "Позвоните в ближайший офис или приезжайте:\n\n"
-        )
-    tail = "\n\n*7* — менеджер"
-    return f"{lead}{offices}{tail}"
+    return (
+        "ℹ️ Не до конца понял ваш запрос.\n\n"
+        "☎️ *Срочно: 8 707 339 10 39*\n"
+        "Позвоните в ближайший офис или приезжайте:\n\n"
+        f"{offices}\n\n"
+        "*7* — менеджер | *0* — меню"
+    )
