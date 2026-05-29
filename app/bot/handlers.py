@@ -1623,6 +1623,13 @@ async def _handle_whatsapp_update_inner(
     # Fallback: если есть fileMessageData без typeMessage — тоже считаем voice
     has_file_data = bool(md.get("fileMessageData"))
     is_voice = is_voice_message(body) or (has_file_data and not text)
+    # Debug quotedMessage structure
+    qm = md.get("quotedMessage", {})
+    if isinstance(qm, dict):
+        logger.warning("WA quotedMessage keys=%s type=%s", list(qm.keys()), qm.get("typeMessage") if isinstance(qm, dict) else "n/a")
+        qmd = qm.get("message", qm)
+        if isinstance(qmd, dict):
+            logger.warning("WA quotedMessage.message type=%s has_file=%s", qmd.get("typeMessage"), bool(qmd.get("fileMessageData")))
     logger.warning("WA voice check: is_voice=%s type=%s has_file=%s text_empty=%s", is_voice, type_msg, has_file_data, not text)
     if is_voice:
         settings = get_settings()
@@ -1645,6 +1652,16 @@ async def _handle_whatsapp_update_inner(
 
         id_message = body.get("idMessage", "")
         media_url = media_url or extract_media_download_url(body)
+        # Fallback: extract URL from quotedMessage if voice is a reply
+        if not media_url:
+            qm = md.get("quotedMessage", {})
+            if isinstance(qm, dict):
+                qmd = qm.get("message", qm)
+                if isinstance(qmd, dict):
+                    fmd = qmd.get("fileMessageData", {})
+                    media_url = fmd.get("downloadUrl") or fmd.get("url")
+                    if media_url:
+                        logger.warning("WA VOICE url from quotedMessage=%s", media_url[:60])
         logger.warning("WA VOICE id=%s url=%s", id_message, media_url[:60] if media_url else None)
         try:
             logger.warning("WA VOICE STEP 1: downloading chat=%s", chat_id)
