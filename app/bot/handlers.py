@@ -1989,7 +1989,12 @@ async def _handle_whatsapp_update_inner(
             return
 
         if looks_like_place_only(text_stripped):
-            await send_wa_with_hint(get_text_fallback_reply(lang, platform="whatsapp"), lang)
+            # Voice artifact или непонятный текст → welcome menu вместо списка городов
+            await send_wa_with_hint(
+                get_welcome_with_menu(lang, session.get("city"), "whatsapp") if session.get("city")
+                else content.get_wa_menu(lang), lang
+            )
+            logger.warning("WA IDLE place fallback replaced with welcome for text=%s", text_stripped[:30])
             return
 
     logger.warning("WA text=%s state=%s city_confirmed=%s", text_stripped, session.get("state"), session.get("city_confirmed"))
