@@ -1684,16 +1684,21 @@ async def _handle_whatsapp_update_inner(
             transcribed, detected_lang = await _transcribe_voice(
                 audio_bytes, ai, lang_hint, filename=fname, session=session
             )
-            logger.warning("WA VOICE STEP 4: STT result text=%s lang=%s", transcribed[:80] if transcribed else None, detected_lang)
+            logger.warning("WA VOICE STEP 4: STT raw text=%s lang=%s", transcribed[:80] if transcribed else None, detected_lang)
             if transcribed and transcribed.strip():
                 if not session.get("lang_locked") and any(
                     c in KK_CHARS for c in transcribed.lower()
                 ):
                     session["lang"] = "kk"
-                text = await _voice_text_for_handler(transcribed.strip(), session)
+                raw_text = transcribed.strip()
+                # Подробное логирование voice pipeline
+                from app.bot.voice_router import route_voice_text
+                route = route_voice_text(raw_text, session)
+                logger.warning("WA VOICE ROUTE raw=%s digit=%s phrase=%s source=%s", raw_text[:40], route.text if route.source == 'digit' else None, route.text if route.source == 'phrase' else None, route.source)
+                text = await _voice_text_for_handler(raw_text, session)
                 session["from_voice"] = True
                 await save_session(chat_id, session)
-                logger.warning("WA VOICE SUCCESS text=%s", text[:60])
+                logger.warning("WA VOICE SUCCESS text=%s source=%s", text[:60], route.source)
                 # Обрабатываем результат напрямую, не полагаясь на проваливание
                 voice_cmd = (text or "").strip()
                 logger.warning("WA VOICE cmd='%s' len=%s isdigit=%s", voice_cmd, len(voice_cmd), voice_cmd.isdigit() if voice_cmd else False)
