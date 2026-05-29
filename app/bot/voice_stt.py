@@ -15,6 +15,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# TODO: add more Kazakh financial terms from chat analysis:
+# "скорбал", "нагрузка", "пенсионка", "зейнет", "жүктеме", "кешігу", "просрочк",
+# "онлайн", "гарантия", "процент", "ставка", "миллион", "несие"
 DOMAIN_STT_PROMPT = (
     "KOMEK DAMU. Кредит, ипотека, DAMU 12,6, несие, рефинансирование. "
     "ИП, ЖК, ТОО, жеке тұлға, физлицо. "
