@@ -40,6 +40,9 @@ for _digit, _words in {
     for w in _words:
         _SPOKEN_NUMBERS[w] = _digit
 
+# TODO: add more real-user phrases from chat analysis:
+# "пенсионка", "пенсия", "зейнет", "нагрузка", "жүктеме", "скорбал", "скоринг",
+# "онлайн", "онлайн тапсыр", "тарих", "история", "кешігу", "просрочк"
 _MENU_PHRASE_TO_DIGIT: list[tuple[str, str]] = [
     ("жеке тұлға", "3"),
     ("жеке туған", "3"),
