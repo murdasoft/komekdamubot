@@ -2049,7 +2049,10 @@ async def _handle_whatsapp_update_inner(
             logger.warning("WA IDLE place fallback replaced with welcome for text=%s", text_stripped[:30])
             return
 
-    # TODO: filter phone-number-only messages (770..., 870...) as spam / ignore
+    # Filter phone-number-only spam (770..., 870..., 8409...)
+    if re.fullmatch(r'\d{10,12}', text_stripped.replace(' ', '')):
+        logger.warning("WA PHONE SPAM ignored: %s", text_stripped[:20])
+        return
     logger.warning("WA text=%s state=%s city_confirmed=%s", text_stripped, session.get("state"), session.get("city_confirmed"))
 
     # Handle WA digit menu
