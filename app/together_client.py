@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 import logging
 
 import httpx
@@ -65,7 +66,19 @@ class TogetherClient:
         prompt: str | None = None,
     ) -> tuple[str | None, str | None]:
         url = f"{TOGETHER_API_BASE}/audio/transcriptions"
-        files = {"file": (filename, io.BytesIO(audio_bytes), "application/octet-stream")}
+        # Set correct MIME type based on file extension for Together AI
+        ext = os.path.splitext(filename)[1].lower()
+        mime_map = {
+            ".mp3": "audio/mpeg",
+            ".ogg": "audio/ogg",
+            ".oga": "audio/ogg",
+            ".opus": "audio/opus",
+            ".wav": "audio/wav",
+            ".flac": "audio/flac",
+            ".m4a": "audio/mp4",
+        }
+        mime = mime_map.get(ext, "audio/ogg")
+        files = {"file": (filename, io.BytesIO(audio_bytes), mime)}
         data = {"model": self.stt_model}
         if language:
             data["language"] = language
