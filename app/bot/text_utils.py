@@ -33,5 +33,7 @@ def is_pure_greeting(text: str) -> bool:
         "салам", "сәлем", "салем", "саламатсызба", "саламатсыз",
         "салеметсезбе", "салеметсізбе", "сalemetsizbe", "assalomu",
         "hello", "hi",
+        # WhatsApp voice transcription artifacts
+        "dzień dobry",
     }
     return core in pure
