@@ -242,7 +242,16 @@ def extract_green_info(body: dict[str, Any]) -> tuple[str | None, str | None, st
 
 
 def is_voice_message(body: dict[str, Any]) -> bool:
-    return _message_data(body).get("typeMessage") in AUDIO_MESSAGE_TYPES
+    md = _message_data(body)
+    if md.get("typeMessage") in AUDIO_MESSAGE_TYPES:
+        return True
+    # quotedMessage может содержать voice reply
+    qm = md.get("quotedMessage", {})
+    if isinstance(qm, dict):
+        qmd = qm.get("message", qm)
+        if isinstance(qmd, dict) and qmd.get("typeMessage") in AUDIO_MESSAGE_TYPES:
+            return True
+    return False
 
 
 IMAGE_MESSAGE_TYPES = frozenset({"imageMessage", "documentMessage"})
