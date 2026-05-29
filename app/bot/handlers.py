@@ -358,7 +358,7 @@ async def _send_voice_text_nudge(
 
 
 def _ensure_session_defaults(session: Dict) -> None:
-    if "conversation_history" not in session:
+    if "conversation_history" not in session or session.get("conversation_history") is None:
         session["conversation_history"] = []
     if "message_count" not in session:
         session["message_count"] = 0
@@ -1079,9 +1079,11 @@ async def handle_telegram_update(
         logger.exception("CRITICAL: handle_telegram_update crashed chat=%s: %s", chat_id, exc)
         if chat_id:
             try:
+                from app.bot.city_routing import get_universal_fallback_reply
+                lang = _sessions.get(str(chat_id), {}).get("lang", DEFAULT_LANG)
                 await tg_client.send_message(
                     chat_id,
-                    "⚠️ Сбой обработки. Нажмите /start или выберите кнопку в меню выше."
+                    get_universal_fallback_reply(lang, platform="telegram")
                 )
             except Exception:
                 pass
