@@ -1723,7 +1723,7 @@ async def _handle_whatsapp_update_inner(
                     # Последняя попытка: обработать как FAQ если текст длинный
                     if voice_cmd and len(voice_cmd) > 10:
                         from app.bot.faq_matcher import try_fast_response
-                        from app.bot.stt_normalize import strip_leading_greeting
+                        from app.bot.text_utils import strip_leading_greeting
                         core = strip_leading_greeting(voice_cmd)
                         fast = try_fast_response(
                             core, lang_ui, session.get("city"), "whatsapp",
