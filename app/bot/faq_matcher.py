@@ -71,6 +71,8 @@ FAQ_PATTERNS: list[_Pattern] = [
     _Pattern(("оператор", "менеджер", "человек", "маман", "связаться с"), faq_key="operator_hint", weight=2),
     _Pattern(("чёрный список", "черный список", "черном списке", "қара тізім"), faq_key="blacklist", weight=4),
     _Pattern(("просрочк", "кешігу", "задолжал"), faq_key="overdue", weight=4),
+    # TODO: auto-expand from chat analysis: "гарантия", "процент", "ставка",
+    # "млн", "миллион", "сома", "кредит аламын", "бересіздер", "көмек"
     # Реальные фразы клиентов
     _Pattern(("онлайн", "онлайн тапсыр", "онлайн оформ", "онлайн консульта"), faq_key="online_service", weight=4),
     _Pattern(("пенсионк", "пенсия", "зейнеткер", "зейнет", "пенсион"), faq_key="pension_info", weight=3),
