@@ -503,9 +503,8 @@ async def _process_tg_voice_message(
         logger.info("Voice TG: routed cmd=%s chat=%s", cmd_text[:60], chat_id)
         session["from_voice"] = True
 
-        if not session.get("lang_locked"):
-            auto_lang = detected_lang if detected_lang in ("ru", "kk") else DEFAULT_LANG
-            session["lang"] = auto_lang
+        # Language stays kk unless explicitly locked by user via 99
+        # Do NOT auto-switch based on voice detection
         await _save_session_logged(chat_id, session)
         return cmd_text
 
@@ -644,35 +643,20 @@ _detect_language = _detect_lang  # alias for tests
 
 
 def _detect_lang_from_free_text(text: str) -> str | None:
-    """Определить язык из свободного текста, когда клиент пишет слово вместо цифры.
-    
-    Возвращает 'kk', 'ru' или None если не удалось определить.
-    """
+    """Всегда kk — казахский приоритетный. Не авто-определяем по тексту."""
     low = text.lower().strip()
     
-    # Явные слова для казахского
-    kk_words = (
-        "қазақша", "казакша", "қазақ", "казак", "казахский", "казахском",
-        "qazaq", "qazaqsha", "kz", "каз",
-    )
-    # Явные слова для русского
+    # Только если явно просит русский — переключаем
     ru_words = (
         "русский", "русском", "русски", "рус", "орысша", "орыс",
         "russian", "ru", "рус",
     )
-    
-    for w in kk_words:
-        if w in low:
-            return "kk"
     for w in ru_words:
         if w in low:
             return "ru"
     
-    # Если текст содержит казахские символы → kk
-    if any(c in low for c in "әіңғүұқөһ"):
-        return "kk"
-    
-    return None
+    # Всё остальное — казахский по умолчанию
+    return "kk"
 
 
 def _update_session_lang(text: str, session: Dict) -> str:
