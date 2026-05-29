@@ -1930,6 +1930,33 @@ async def _handle_whatsapp_update_inner(
             await send_wa_with_hint(get_lang_step_text())
         return
 
+    # Универсальный spoken-digit/menu-phrase маппинг: работает В ЛЮБОМ state
+    # Нужен для voice-as-text когда WhatsApp Web конвертирует voice→text
+    from app.bot.voice_router import map_menu_phrase, extract_spoken_digit
+    _maybe_digit = text_stripped
+    phrase_digit = map_menu_phrase(_maybe_digit)
+    if phrase_digit and phrase_digit not in ("0", "98", "99"):
+        _maybe_digit = phrase_digit
+    else:
+        spoken = extract_spoken_digit(_maybe_digit)
+        if spoken and spoken not in ("0", "98", "99"):
+            _maybe_digit = spoken
+    if _maybe_digit in content.WA_DIGIT_MAP and session.get("state") != "selecting_lang":
+        mapped = content.WA_DIGIT_MAP.get(_maybe_digit)
+        if mapped == "operator":
+            session["state"] = "handoff"
+            session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
+            await send_wa_with_hint(content.get_operator_message_with_phone(lang, session.get("city"), "whatsapp"))
+            await _notify_manager(f"🚨 *Меню → менеджер (WhatsApp)*\nPhone: `{chat_id}`", chat_id, "whatsapp", session=session)
+            await save_session(chat_id, session)
+            return
+        elif mapped:
+            menu_ok = await _send_menu_choice(mapped, session, lambda m, rl=lang: send_wa_with_hint(m, rl), platform="whatsapp")
+            if menu_ok:
+                await save_session(chat_id, session)
+                logger.warning("WA UNIVERSAL MENU sent digit=%s mapped=%s", _maybe_digit, mapped)
+                return
+
     if session.get("nearby_pick") and text_stripped.isdigit():
         opts = session.get("nearby_pick") or []
         idx = int(text_stripped) - 1
