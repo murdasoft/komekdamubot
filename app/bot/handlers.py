@@ -275,7 +275,7 @@ async def _get_session(chat_id: str) -> Dict:
     
     session = _sessions[chat_id]
     # Ensure all fields exist
-    if "conversation_history" not in session:
+    if "conversation_history" not in session or session.get("conversation_history") is None:
         session["conversation_history"] = []
     if "platform" not in session:
         session["platform"] = "telegram"
