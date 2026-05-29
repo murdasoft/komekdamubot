@@ -1824,6 +1824,7 @@ async def _handle_whatsapp_update_inner(
         return
 
     # 99 — смена языка (шаг 1)
+    # TODO: handle "тіл", "язык", "казахский", "русский" text inputs too
     if text_stripped == "99":
         session["state"] = "selecting_lang"
         session.pop("city_confirmed", None)
@@ -2048,6 +2049,7 @@ async def _handle_whatsapp_update_inner(
             logger.warning("WA IDLE place fallback replaced with welcome for text=%s", text_stripped[:30])
             return
 
+    # TODO: filter phone-number-only messages (770..., 870...) as spam / ignore
     logger.warning("WA text=%s state=%s city_confirmed=%s", text_stripped, session.get("state"), session.get("city_confirmed"))
 
     # Handle WA digit menu
