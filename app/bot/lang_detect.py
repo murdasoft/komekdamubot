@@ -5,11 +5,7 @@ from __future__ import annotations
 import re
 
 from app.bot.content import DEFAULT_LANG
-from app.bot.kazakh_dict import (
-    KK_CHARS,
-    ALL_KK_WORDS,
-    KK_PHRASES_EXTENDED as KK_PHRASES,
-)
+from app.bot.kazakh_phrases import KK_CHARS, KK_PHRASES_EXTENDED as KK_PHRASES
 
 _WORD_RE = re.compile(r"[a-zа-яёәіңғүұқөһ]+", re.IGNORECASE)
 
@@ -61,7 +57,10 @@ def detect_message_lang(text: str) -> str:
             return "kk"
 
     kk_only = words - _AMBIGUOUS
-    if kk_only & ALL_KK_WORDS:
-        return "kk"
+    if kk_only:
+        from app.bot.kazakh_dict import get_all_kk_words
+
+        if kk_only & get_all_kk_words():
+            return "kk"
 
     return DEFAULT_LANG

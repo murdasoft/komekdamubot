@@ -46,6 +46,8 @@ SESSION_PERSIST_KEYS = (
     "tg_screen",
     "last_entity",
     "nearby_pick",
+    "last_voice_raw",
+    "from_voice",
 )
 
 
@@ -61,6 +63,7 @@ def get_supabase_url() -> str:
     return _first_env(
         "SUPABASE_URL",
         "NEXT_PUBLIC_SUPABASE_URL",
+        "komek_SUPABASE_URL",
         "NEXT_PUBLIC_komek_SUPABASE_URL",
     )
 

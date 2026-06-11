@@ -1,0 +1,19 @@
+*.zip
+**/*.zip
+# Большие корпуса — грузятся из Vercel Blob (см. scripts/upload_kk_corpus_blob.py)
+app/bot/data/kk_dictionary.json
+app/bot/data/kk_phrases_top10k.json
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+tests/
+docs/
+docs/archive/
+data/kk_datasets/
+scripts/
+words.csv
+PLAN_VOICE_AND_UX.md
+КОМЕК ДАМУ ЧАТБОТ ИИ2026.md
+KOMEK DAMU.md

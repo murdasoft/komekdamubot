@@ -1,5 +1,6 @@
 # Environment
 .env
+*.zip
 .env.local
 .env.*.local
 
@@ -57,3 +58,12 @@ Thumbs.db
 # Vercel
 .vercel
 .env*.local
+.env.vercel.local
+
+# Downloaded Kazakh corpora (kk_stt_vocab.json в git; тяжёлые — Blob/Vercel)
+data/kk_datasets/
+words.csv
+
+# Тяжёлые JSON (деплой через Vercel Blob, см. scripts/upload_kk_corpus_blob.py)
+app/bot/data/kk_dictionary.json
+app/bot/data/kk_phrases_top10k.json

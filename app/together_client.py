@@ -14,6 +14,22 @@ logger = logging.getLogger(__name__)
 
 TOGETHER_API_BASE = "https://api.together.xyz/v1"
 
+_together_cache: dict[tuple[str, str, str], "TogetherClient"] = {}
+
+
+def get_together_client(settings) -> "TogetherClient":
+    """Reuse client per API key + models (serverless warm instances)."""
+    key = (
+        settings.together_api_key,
+        settings.together_model,
+        settings.together_stt_model,
+    )
+    client = _together_cache.get(key)
+    if client is None:
+        client = TogetherClient(*key)
+        _together_cache[key] = client
+    return client
+
 
 class TogetherClient:
     def __init__(
@@ -64,36 +80,49 @@ class TogetherClient:
         filename: str = "audio.ogg",
         language: str | None = None,
         prompt: str | None = None,
+        *,
+        temperature: float = 0.0,
     ) -> tuple[str | None, str | None]:
         url = f"{TOGETHER_API_BASE}/audio/transcriptions"
-        # Set correct MIME type based on file extension for Together AI
         ext = os.path.splitext(filename)[1].lower()
-        mime_map = {
-            ".mp3": "audio/mpeg",
-            ".ogg": "audio/ogg",
-            ".oga": "audio/ogg",
-            ".opus": "audio/ogg",  # Together may not accept audio/opus
-            ".wav": "audio/wav",
-            ".flac": "audio/flac",
-            ".m4a": "audio/mp4",
+        if ext in (".ogg", ".oga"):
+            upload_name = "audio.opus"
+            mime = "audio/opus"
+        elif ext == ".mp3":
+            upload_name = "audio.mp3"
+            mime = "audio/mpeg"
+        elif ext == ".wav":
+            upload_name = "audio.wav"
+            mime = "audio/wav"
+        else:
+            upload_name = filename or "audio.ogg"
+            mime = "audio/ogg"
+
+        logger.info(
+            "Together STT: file=%s upload=%s mime=%s lang=%s bytes=%s",
+            filename,
+            upload_name,
+            mime,
+            language,
+            len(audio_bytes),
+        )
+        files = {"file": (upload_name, io.BytesIO(audio_bytes), mime)}
+        data: dict[str, str] = {
+            "model": self.stt_model,
+            "response_format": "json",
+            "temperature": str(temperature),
         }
-        mime = mime_map.get(ext, "audio/ogg")
-        # Log file header for debugging
-        header = audio_bytes[:16] if audio_bytes else b""
-        logger.warning("Together STT upload: filename=%s mime=%s bytes=%s header=%s", filename, mime, len(audio_bytes), header.hex())
-        files = {"file": (filename, io.BytesIO(audio_bytes), mime)}
-        data = {"model": self.stt_model}
         if language:
             data["language"] = language
         if prompt:
-            data["prompt"] = prompt
+            data["prompt"] = prompt[:2200]
         headers = {"Authorization": f"Bearer {self.api_key}"}
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=60.0) as client:
                 r = await client.post(url, headers=headers, files=files, data=data)
                 r.raise_for_status()
                 result = r.json()
-                text = result.get("text", "").strip()
+                text = (result.get("text") or "").strip()
                 return text if text else None, None
         except httpx.HTTPStatusError as e:
             err = f"HTTP {e.response.status_code}: {e.response.text[:300]}"

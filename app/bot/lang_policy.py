@@ -88,10 +88,21 @@ def detect_lang_from_free_text(text: str) -> str:
 
 
 def hybrid_menu_footer(lang: str, session: dict) -> str:
-    """Подсказка меню в гибридном режиме (после города)."""
+    """Подсказка меню / шага мастера после гибридного ответа."""
+    state = session.get("state")
+    if state == "selecting_city" and not session.get("city_confirmed"):
+        if lang == "kk":
+            return (
+                "\n\n📍 _Қалаңызды таңдаңыз (сан):_ "
+                "1–Алматы · 2–Астана · 3–Шымкент · 4–Ақтау"
+            )
+        return (
+            "\n\n📍 _Выберите город (цифрой):_ "
+            "1–Алматы · 2–Астана · 3–Шымкент · 4–Актау"
+        )
     if not session.get("city_confirmed"):
         return ""
-    if session.get("state") not in (None, "idle", "office_directed"):
+    if state not in (None, "idle", "office_directed"):
         return ""
     if lang == "kk":
         return (

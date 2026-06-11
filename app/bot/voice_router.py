@@ -97,11 +97,6 @@ _MENU_PHRASE_TO_DIGIT: list[tuple[str, str]] = [
     ("мәзір", "0"),
     ("меню", "0"),
     ("бастау", "0"),
-    ("саламатсыз", "0"),
-    ("сәлем", "0"),
-    ("салам", "0"),
-    ("здравствуй", "0"),
-    ("привет", "0"),
 ]
 
 
@@ -137,8 +132,35 @@ def extract_spoken_digit(text: str) -> str | None:
     return None
 
 
+def looks_like_credit_question(text: str) -> bool:
+    """Общий вопрос про несие — в AI, как при тексте (не цифра меню)."""
+    from app.bot.text_utils import strip_leading_greeting
+
+    core = strip_leading_greeting(text).lower().strip()
+    if not core:
+        return False
+    open_markers = (
+        "алғым келеді", "несие алу", "несие керек", "кредит керек",
+        "қарыз керек", "нужен кредит", "хочу кредит", "хочу взять",
+    )
+    if any(m in core for m in open_markers):
+        return True
+    product_hints = (
+        "жк", " ип", "ип ", "тоо", "төо", "жеке", "физлиц", "ипотек",
+        "даму", "кәсіп", "касип", "бизнес", "пәтер", "квартир",
+    )
+    if ("несие" in core or "кредит" in core) and not any(h in core for h in product_hints):
+        return True
+    return False
+
+
 def map_menu_phrase(text: str) -> str | None:
-    low = f" {_normalize_low(text)} "
+    from app.bot.text_utils import strip_leading_greeting
+
+    core = strip_leading_greeting(text).strip()
+    if not core:
+        return None
+    low = f" {_normalize_low(core)} "
     for phrase, digit in sorted(_MENU_PHRASE_TO_DIGIT, key=lambda x: -len(x[0])):
         if phrase in low:
             return digit
@@ -276,6 +298,9 @@ def route_voice_text(
     settings = settings or get_settings()
     raw = text.strip()
     cleaned = normalize_stt_borrower_answer(raw, session)
+
+    if looks_like_credit_question(cleaned):
+        return VoiceRoute(text=cleaned, source="raw", raw_transcript=raw)
 
     state = (session or {}).get("state", "idle")
 

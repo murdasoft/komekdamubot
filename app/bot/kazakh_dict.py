@@ -1,10 +1,17 @@
 """
 Massive Kazakh dictionary with transliteration variations.
 Covers: greetings, verbs, pronouns, finance, time, questions, conjunctions.
+
+Морфология (ALL_KK_WORDS) строится лениво — не при import.
+Фразы и KK_CHARS — в kazakh_phrases.py (лёгкий import).
 """
 
-# Kazakh-specific characters (letters exclusive to Kazakh alphabet)
-KK_CHARS = set('әіңғүұқөһӘІҢҒҮҰҚӨҺ')
+from __future__ import annotations
+
+import re
+from functools import lru_cache
+
+from app.bot.kazakh_phrases import KK_CHARS, KK_PHRASES_EXTENDED
 
 # Common Kazakh word stems for noun case generation
 KK_NOUN_STEMS = [
@@ -113,11 +120,6 @@ def generate_noun_cases(stem: str) -> set:
     
     return cases
 
-# Generate all noun case forms
-KK_NOUN_CASES = set()
-for stem in KK_NOUN_STEMS:
-    KK_NOUN_CASES.update(generate_noun_cases(stem))
-
 # Common verb stems for conjugation generation
 KK_VERB_STEMS = [
     "бар", "кел", "ал", "бер", "көр", "кор", "жаз", "оқы", "оки",
@@ -199,11 +201,6 @@ def generate_verb_forms(stem: str) -> set:
     
     return forms
 
-# Generate all verb forms
-KK_VERB_ALL = set()
-for stem in KK_VERB_STEMS:
-    KK_VERB_ALL.update(generate_verb_forms(stem))
-
 # Adjective comparatives and superlatives
 KK_ADJECTIVE_STEMS = [
     "жақсы", "жаксы", "жаман", "үлкен", "улкен", "кіші", "киши", "жаңа", "жанга",
@@ -236,10 +233,6 @@ def generate_adj_forms(stem: str) -> set:
     forms.add("ен " + stem)
     
     return forms
-
-KK_ADJ_ALL = set()
-for stem in KK_ADJECTIVE_STEMS:
-    KK_ADJ_ALL.update(generate_adj_forms(stem))
 
 # Possessive suffixes added to common nouns
 KK_POSSESSIVE_BASES = [
@@ -277,10 +270,6 @@ def generate_possessive(base: str) -> set:
         forms.add(base + ("и" if is_front else "ы"))
     
     return forms
-
-KK_POSSESSIVE = set()
-for base in KK_POSSESSIVE_BASES:
-    KK_POSSESSIVE.update(generate_possessive(base))
 
 # Core verbs with all common conjugations and transliterations
 KK_VERBS = {
@@ -984,90 +973,43 @@ KK_EXTENDED_VOCAB = {
     "мәлімет", "малимет", "дерек", "дерек", "ақпарат", "акпарат", "мәліметтер",
 }
 
-# Collected all categories including generated morphological forms
-ALL_KK_WORDS = (
-    KK_VERBS | KK_PRONOUNS | KK_FINANCE | KK_GREETINGS | KK_TIME | KK_QUESTIONS |
-    KK_CONJUNCTIONS | KK_NUMBERS | KK_ADJECTIVES | KK_LOCATION | KK_ACTIONS |
-    KK_NOUN_CASES | KK_VERB_ALL | KK_ADJ_ALL | KK_POSSESSIVE | KK_EXTENDED_VOCAB
-)
-
-# Special multi-word phrases (substring match priority)
-KK_PHRASES_EXTENDED = (
-    # Greetings
-    "сәлеметсіз бе", "салеметсиз бе", "сәлеметсіздер", "салеметсіздер",
-    "сәлеметсізбе", "салеметсизбе", "сәлеметсіздерме", "салеметсіздерме",
-    # Thanks variations
-    "көп рахмет", "көп рахмет сізге", "көп рахмет сіздерге",
-    # Credit phrases
-    "несие керек", "несие керек пе", "несие бересіз", "несие бересізбе",
-    "несие алайын", "несие алғым", "несие алып", "несие бер",
-    # Business phrases
-    "бизнес керек", "бизнес баста", "бизнес жүргіз", "бизнесім бар",
-    "бизнес аш", "бизнес жаб", "бизнес сат",
-    # IP phrases
-    "жк аш", "жс аш", "жк бар", "жс бар", "жк керек", "жс керек",
-    "жеке кәсіпкер", "жеке касипкер", "жеке кәсіп",
-    # TOO phrases
-    "тоо аш", "тоо бар", "тоо керек", "тө аш", "тө бар",
-    "тоо аштым", "тоо ашқан", "тоо жабу",
-    # DAMU phrases
-    "даму кредит", "даму несие", "даму бересіз",
-    # Mortgage phrases
-    "үй керек", "уй керек", "үй алғым", "уй алгым", "үй сатып алу", "уй сатып алу",
-    "ипотека керек", "ипота керек", "ипотека бересіз", "ипота бересіз",
-    "пәтер керек", "патер керек",
-    # Pension phrases
-    "пенсионка менен", "пенсионкамен", "пенсионкасыз", "пенсия алып",
-    # Work phrases
-    "жұмыс керек", "жумыс керек", "жұмыс істеймін", "жумыс истеймин",
-    "жұмыс табу", "жумыс табу", "жұмыссыз", "жумыссыз",
-    # Document phrases
-    "құжат керек", "кужат керек", "құжаттар", "кужаттар", "құжат жоқ", "кужат жоқ",
-    # Money phrases
-    "ақша керек", "акша керек", "ақша бер", "акша бер", "ақша ал", "акша ал",
-    "қарыз алу", "карыз алу", "қарыз беру", "карыз беру",
-    # Payment phrases
-    "төлеу керек", "толеу керек", "төлем керек", "толем керек",
-    "төлем жасау", "толем жасау", "төлем жасадым", "толем жасадим",
-    # Interest phrases
-    "пайыз қанша", "пайыз канша", "пайыз неше", "пайызы", "пайызбен",
-    # Period phrases
-    "мерзімі", "мерзимi", "мерзімге", "мерзимге", "қанша уақыт", "канша уақыт",
-    # Amount phrases
-    "сомасы", "сомасы қанша", "қанша сома", "канша сома",
-    "миллион керек", "миллион бересіз", "мың керек", "муң керек",
-    # Problem phrases
-    "просрочка бар", "просрочка болды", "просрочка болмауы", "просрочка жоқ",
-    "ашық просрочка", "ашык просрочка",
-    "қарыздан құтылу", "карыздан кутулу", "қарыздан шығу", "карыздан шыгу",
-    # Help phrases
-    "көмек керек", "көмек керек", "көмек бересіз", "көмек бересиз",
-    "көмектесіңіз", "көмектесиниз", "көмек жасаңыз", "көмек жасаниз",
-    # Question phrases
-    "қалай болады", "калай болады", "қанша тұрады", "канша турады",
-    "неге болмайды", "неге болмайд", "қашан бересіз", "качан бересиз",
-    "қайда барамын", "кайда барамин",
-    # Confirmation phrases
-    "болды", "болды ма", "болдым", "болдымба", "жарайды", "жарайды ма",
-    "жақсы", "жаксы", "жақсы ма", "жаксы ма", "түсіндім", "тусиндим",
-    "түсіндімбе", "тусиндимбе", "түсінбедім", "тусинбедим",
-    # Negation phrases
-    "болмайды", "болмайд", "болмады", "болмайтын", "болмайтын",
-    "жоқ", "жок", "жоқпа", "жокпа", "емес", "емеспін", "емеспын",
-    # Politeness phrases
-    "өтінемін", "отinemin", "өтініш", "отиниш", "сәлеметсізбе", "салеметсизбе",
-    "кешіріңіз", "кешirisiz", "кешір", "кешир",
-    # Agreement phrases
-    "болады", "болад", "болатын", "болат", "жарайды", "жарайд",
-    "келісемін", "келисемин", "келісем", "келисем", "дұрыс", "дурс",
-    # Disagreement phrases
-    "болмайды", "болмайд", "келіспеймін", "келиспеймин", "жарамайды", "жарамайд",
-)
+@lru_cache(maxsize=1)
+def _all_kk_words_frozen() -> frozenset[str]:
+    noun_cases: set[str] = set()
+    for stem in KK_NOUN_STEMS:
+        noun_cases.update(generate_noun_cases(stem))
+    verb_all: set[str] = set()
+    for stem in KK_VERB_STEMS:
+        verb_all.update(generate_verb_forms(stem))
+    adj_all: set[str] = set()
+    for stem in KK_ADJECTIVE_STEMS:
+        adj_all.update(generate_adj_forms(stem))
+    possessive: set[str] = set()
+    for base in KK_POSSESSIVE_BASES:
+        possessive.update(generate_possessive(base))
+    return frozenset(
+        KK_VERBS
+        | KK_PRONOUNS
+        | KK_FINANCE
+        | KK_GREETINGS
+        | KK_TIME
+        | KK_QUESTIONS
+        | KK_CONJUNCTIONS
+        | KK_NUMBERS
+        | KK_ADJECTIVES
+        | KK_LOCATION
+        | KK_ACTIONS
+        | KK_EXTENDED_VOCAB
+        | noun_cases
+        | verb_all
+        | adj_all
+        | possessive
+    )
 
 
 def get_all_kk_words() -> set:
-    """Return all Kazakh words as a set."""
-    return ALL_KK_WORDS.copy()
+    """Return all Kazakh words as a set (lazy, cached)."""
+    return set(_all_kk_words_frozen())
 
 
 def get_all_kk_phrases() -> tuple:
@@ -1090,7 +1032,5 @@ def detect_kazakh(text: str) -> bool:
         if phrase in lower:
             return True
     
-    # Check for words
-    import re
-    words = set(re.findall(r'[a-zа-яёәіңғүұқөһ]+', lower))
-    return bool(words & ALL_KK_WORDS)
+    words = set(re.findall(r"[a-zа-яёәіңғүұқөһ]+", lower))
+    return bool(words & _all_kk_words_frozen())

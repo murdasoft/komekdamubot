@@ -118,6 +118,13 @@ class TestVoiceMessage:
         }
         assert get_voice_file_id(update) == "voice_123"
 
+    def test_get_voice_duration_sec(self):
+        from app.telegram_api import get_voice_duration_sec
+
+        assert get_voice_duration_sec({"message": {"voice": {"duration": 6}}}) == 6.0
+        assert get_voice_duration_sec({"message": {"audio": {"duration": 42}}}) == 42.0
+        assert get_voice_duration_sec({"message": {"text": "hi"}}) is None
+
     def test_is_audio_message(self):
         update = {
             "message": {

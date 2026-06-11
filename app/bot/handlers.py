@@ -23,7 +23,6 @@ from app.bot.city_routing import (
 )
 from app.bot.text_utils import strip_leading_greeting
 from app.bot.response_builder import finalize_bot_response
-from app.gemini_client import GeminiClient, get_gemini_client
 from app.bot.stt_normalize import (
     is_borrower_clarify_message,
     normalize_stt_borrower_answer,
@@ -68,6 +67,7 @@ from app.bot.menu import (
     resolve_menu_digit,
 )
 from app.bot.telegram_nav import handle_nav_callback
+from app.bot.hybrid_flow import is_wizard_nav_input, send_hybrid_reply
 from app.bot.tg_wa_ui import (
     send_tg_city_help,
     send_tg_city_step,
@@ -84,7 +84,7 @@ from app.bot.wizard import (
 )
 from app.offices import get_contact_footer
 from app.bot.lang_detect import detect_message_lang
-from app.bot.kazakh_dict import KK_CHARS
+from app.bot.kazakh_phrases import KK_CHARS
 from app.supabase_client import save_session, load_session, log_message, create_lead
 from app.bot.business_hours import is_bot_active_now, get_human_hours_reply
 from app.bot.ux_labels import (
@@ -144,6 +144,7 @@ def _has_business_content(text_lower: str) -> bool:
     hints = (
         "кредит", "ипотек", "несие", "даму", "рефинанс", "тенге", "тг",
         "млн", "миллион", "займ", "сумм", "ставк", "процент", "взять", "оформ",
+        "алғым", "алу", "келеді", "керек", "бересіз", "берес", "қажет",
     )
     if any(h in text_lower for h in hints):
         return True
@@ -340,8 +341,9 @@ async def _transcribe_voice(
     lang_hint: str | None = None,
     filename: str = "voice.ogg",
     session: Dict | None = None,
+    duration_sec: float | None = None,
 ) -> tuple[str | None, str]:
-    """STT: Groq Whisper (основной), VPS faster-whisper, Together legacy."""
+    """STT: Together Whisper (kk) + ensemble, LLM refine."""
     settings = get_settings()
     return await transcribe_voice_message(
         audio_bytes,
@@ -350,12 +352,20 @@ async def _transcribe_voice(
         lang_hint=lang_hint,
         filename=filename,
         session=session,
+        duration_sec=duration_sec,
     )
 
 
 async def _voice_text_for_handler(transcribed: str, session: Dict) -> str:
-    """Разбор голоса → команда меню/FAQ (без свободного ответа LLM)."""
-    route = await prepare_voice_input(transcribed, session)
+    """Голос → тот же текстовый пайплайн, что и при наборе."""
+    from app.bot.stt_normalize import normalize_stt_voice_text
+    from app.bot.voice_router import looks_like_credit_question
+
+    normalized = normalize_stt_voice_text(transcribed, session)
+    route = await prepare_voice_input(normalized, session)
+    if looks_like_credit_question(normalized):
+        logger.info("Voice credit question → raw text: %s", normalized[:60])
+        return normalized
     logger.info("Voice route source=%s text=%s", route.source, route.text[:60])
     return route.text
 
@@ -381,19 +391,55 @@ def _ensure_session_defaults(session: Dict) -> None:
         session["message_count"] = 0
 
 
+async def _try_hybrid_send(
+    text: str,
+    session: Dict,
+    ai: AIClient | None,
+    send_fn=None,
+    *,
+    tg_client=None,
+    chat_id: str | None = None,
+    nav_step: str | None = None,
+) -> bool:
+    if tg_client is not None and chat_id is not None:
+        send_fn = _tg_send_bound(tg_client, chat_id, session, nav_step=nav_step)
+    if send_fn is None:
+        return False
+    return await send_hybrid_reply(
+        text,
+        session,
+        ai,
+        send_fn,
+        get_reply=_get_bot_reply,
+    )
+
+
 async def _tg_reply_credit_clarify(
     tg_client,
     chat_id: str,
     session: Dict,
+    ai: AIClient | None,
+    text: str,
 ) -> None:
-    """Telegram: как WhatsApp — меню цифрами 1–7."""
+    """FAQ/AI по кредиту, затем меню цифрами."""
     lang = session.get("lang", DEFAULT_LANG)
     _ensure_session_defaults(session)
 
     if not session.get("city_confirmed"):
         session["state"] = "selecting_city"
-        await send_tg_city_step(tg_client, chat_id, session)
-    else:
+
+    nav = "city" if not session.get("city_confirmed") else "main"
+    if await _try_hybrid_send(
+        text,
+        session,
+        ai,
+        None,
+        tg_client=tg_client,
+        chat_id=chat_id,
+        nav_step=nav,
+    ):
+        pass
+    elif session.get("city_confirmed"):
         await send_tg_with_hint(
             tg_client,
             chat_id,
@@ -401,6 +447,8 @@ async def _tg_reply_credit_clarify(
             get_credit_choice_menu(lang),
             nav_step="main",
         )
+    else:
+        await send_tg_city_step(tg_client, chat_id, session)
 
     await _send_voice_text_nudge(session, chat_id, lang, tg_client.send_message)
     await _save_session_logged(chat_id, session)
@@ -457,10 +505,10 @@ async def _process_tg_voice_message(
     ai: AIClient | None,
 ) -> str | None:
     """
-    Скачать аудио → STT → «Распознано».
+    Скачать аудио → STT (текст не показываем клиенту).
     Возвращает текст для дальнейшей обработки или None (ошибка уже отправлена).
     """
-    from app.telegram_api import get_voice_file_id, get_file_url
+    from app.telegram_api import get_voice_duration_sec, get_voice_file_id, get_file_url
 
     settings = get_settings()
     lang_ui = session.get("lang", DEFAULT_LANG)
@@ -475,14 +523,16 @@ async def _process_tg_voice_message(
         await _save_session_logged(chat_id, session)
         return None
 
-    await tg_client.send_message(
+    await tg_client.send_chat_action(
         chat_id,
-        "🎤 Слушаю голосовое, секунду..."
-        if lang_ui == "ru"
-        else "🎤 Дауыстық хабарламаны тыңдап жатырмын...",
+        "record_voice" if lang_ui == "kk" else "upload_voice",
     )
 
     try:
+        from app.kk_corpus_loader import get_stt_vocab
+
+        corpus_warmup = asyncio.get_running_loop().run_in_executor(None, get_stt_vocab)
+
         file_id = get_voice_file_id(body)
         logger.info("Voice TG: file_id=%s chat=%s", file_id, chat_id)
         if not file_id:
@@ -502,11 +552,19 @@ async def _process_tg_voice_message(
             r.raise_for_status()
             audio_bytes = r.content
         logger.info("Voice TG: downloaded %s bytes chat=%s", len(audio_bytes), chat_id)
+        await corpus_warmup
 
-        lang_hint = (
-            session.get("lang") if session.get("lang") in ("ru", "kk") else DEFAULT_LANG
+        if session.get("lang_locked") and session.get("lang") == "ru":
+            lang_hint = "ru"
+        else:
+            lang_hint = "kk"
+        duration_sec = get_voice_duration_sec(body)
+        logger.info(
+            "Voice TG: STT started chat=%s lang_hint=%s dur=%s",
+            chat_id,
+            lang_hint,
+            duration_sec,
         )
-        logger.info("Voice TG: STT started chat=%s lang_hint=%s", chat_id, lang_hint)
         transcribed, detected_lang = await asyncio.wait_for(
             _transcribe_voice(
                 audio_bytes,
@@ -514,8 +572,9 @@ async def _process_tg_voice_message(
                 lang_hint,
                 filename="voice.ogg",
                 session=session,
+                duration_sec=duration_sec,
             ),
-            timeout=45.0,
+            timeout=55.0,
         )
         logger.info(
             "Voice TG: STT result chat=%s lang=%s text=%s",
@@ -536,21 +595,14 @@ async def _process_tg_voice_message(
 
         raw = transcribed.strip()
         if not session.get("lang_locked"):
-            if detected_lang in ("ru", "kk"):
-                session["lang"] = detected_lang
-            elif any(c in KK_CHARS for c in raw.lower()):
+            session["lang"] = DEFAULT_LANG
+            if any(c in KK_CHARS for c in raw.lower()) or detected_lang == "kk":
                 session["lang"] = "kk"
-
-        heard_label = "Распознано" if lang_ui == "ru" else "Танылды"
-        await tg_client.send_message(chat_id, f"🎤 {heard_label}: _{raw}_")
 
         cmd_text = await _voice_text_for_handler(raw, session)
         logger.info("Voice TG: routed cmd=%s chat=%s", cmd_text[:60], chat_id)
         session["from_voice"] = True
         session["last_voice_raw"] = raw
-
-        # Language stays kk unless explicitly locked by user via 99
-        # Do NOT auto-switch based on voice detection
         await _save_session_logged(chat_id, session)
         return cmd_text
 
@@ -722,16 +774,14 @@ async def _get_bot_reply(
     session: Dict,
     ai: AIClient | None,
 ) -> str | None:
-    """Гибрид: FAQ → AI-агент (база знаний) → гид к FAQ + меню 1–7."""
+    """AI-агент (база знаний) → FAQ fallback → гид."""
+    from app.bot.ai_agent import run_kb_agent
     from app.bot.lang_policy import attach_hybrid_footer
     from app.config import get_settings
 
     settings = get_settings()
     text = normalize_stt_borrower_answer(text, session)
     lang = _update_session_lang(text, session)
-    if session.get("city_confirmed") and is_vague_credit_request(text):
-        session.pop("guide_attempts", None)
-        return get_credit_choice_menu(lang)
     found_city = detect_city(text)
     if found_city:
         session["city"] = found_city
@@ -740,29 +790,8 @@ async def _get_bot_reply(
     platform = session.get("platform", "telegram")
     hybrid = settings.hybrid_ai_enabled
 
-    fast = try_fast_response(
-        core,
-        lang,
-        session.get("city"),
-        platform,
-        city_confirmed=session.get("city_confirmed", False),
-        session=session,
-    )
-    if fast:
-        logger.info("Fast FAQ hit for: %s", core[:40])
-        session.pop("guide_attempts", None)
-        _update_session_intent(core, session)
-        if is_borrower_clarify_message(fast):
-            session["awaiting_borrower_type"] = True
-        elif session.get("awaiting_borrower_type"):
-            from app.bot.knowledge_base import detect_business_entity
-
-            if detect_business_entity(core):
-                session.pop("awaiting_borrower_type", None)
-        return attach_hybrid_footer(fast, lang, session, enabled=hybrid)
-
     if hybrid and ai and settings.is_ai_configured:
-        ai_resp = await _handle_ai_response_with_context(core, session, ai)
+        ai_resp = await run_kb_agent(core, session, ai)
         if ai_resp:
             clean = (
                 ai_resp.replace("[NOTIFY_MANAGER]", "")
@@ -770,12 +799,34 @@ async def _get_bot_reply(
                 .strip()
             )
             if clean:
-                logger.info("Hybrid AI reply for: %s", core[:40])
+                logger.info("KB agent reply for: %s", core[:40])
                 session.pop("guide_attempts", None)
                 _update_session_intent(core, session)
                 return attach_hybrid_footer(clean, lang, session, enabled=hybrid)
 
-    logger.info("No FAQ/AI match, FAQ guide: %s", core[:40])
+    if settings.fast_faq_enabled:
+        fast = try_fast_response(
+            core,
+            lang,
+            session.get("city"),
+            platform,
+            city_confirmed=session.get("city_confirmed", False),
+            session=session,
+        )
+        if fast:
+            logger.info("Fast FAQ fallback for: %s", core[:40])
+            session.pop("guide_attempts", None)
+            _update_session_intent(core, session)
+            if is_borrower_clarify_message(fast):
+                session["awaiting_borrower_type"] = True
+            elif session.get("awaiting_borrower_type"):
+                from app.bot.knowledge_base import detect_business_entity
+
+                if detect_business_entity(core):
+                    session.pop("awaiting_borrower_type", None)
+            return attach_hybrid_footer(fast, lang, session, enabled=hybrid)
+
+    logger.info("AI/FAQ miss, FAQ guide: %s", core[:40])
     guide = await build_faq_guide_reply(core, lang, session, ai, platform=platform)
     return attach_hybrid_footer(guide, lang, session, enabled=hybrid)
 
@@ -785,90 +836,10 @@ async def _handle_ai_response_with_context(
     session: Dict,
     ai: AIClient | None,
 ) -> str | None:
-    """Гибридный AI: ответ по базе знаний, язык из lang_policy."""
-    if not ai:
-        return None
-    lang = _update_session_lang(text, session)
-    found_city = detect_city(text)
-    if found_city:
-        session["city"] = found_city
-        session["city_confirmed"] = True
-    city = session.get("city")
-    system_prompt = get_system_prompt(lang, city=city)
+    """Обратная совместимость — делегирует в KB-агента."""
+    from app.bot.ai_agent import run_kb_agent
 
-    intent = detect_intent(text, session)
-    if intent:
-        info = get_product_info(intent, lang)
-        if info:
-            if intent == "personal_credit":
-                from app.bot.knowledge_base import format_personal_credit_answer
-
-                context = format_personal_credit_answer(lang, text)
-            else:
-                context = (
-                    f"Продукт: {info['name']}. {info['description']}. "
-                    f"Условия: {info['conditions'][:400]}"
-                )
-        else:
-            context = ""
-    else:
-        names = [
-            (p.name_ru if lang == "ru" else p.name_kk)
-            for p in PRODUCTS.values()
-        ]
-        context = "Продукты: " + ", ".join(names)
-
-    history = session.get("conversation_history", [])
-    messages = [{"role": "system", "content": system_prompt + "\n\n" + context}]
-
-    for msg in history[-2:]:
-        role = "user" if msg["role"] == "user" else "assistant"
-        messages.append({"role": role, "content": msg["text"][:300]})
-
-    messages.append({"role": "user", "content": text})
-
-    settings = get_settings()
-    from app.groq_client import GroqClient
-    response, err = None, None
-    max_tok = settings.local_llm_max_tokens
-    provider = settings.effective_ai_provider
-    use_groq = provider == "groq" or (
-        settings.groq_enabled and settings.is_groq_configured and provider != "together"
-    )
-
-    if use_groq and settings.is_groq_configured:
-        groq = GroqClient(settings.groq_api_key, settings.groq_model, settings.groq_stt_model)
-        response, err = await groq.chat(messages, temperature=0.6, max_tokens=max_tok)
-    elif provider == "together" and ai:
-        response, err = await ai.chat(messages, temperature=0.5, max_tokens=max_tok)
-    elif ai:
-        import asyncio
-        try:
-            response, err = await asyncio.wait_for(
-                ai.chat(messages, temperature=0.6, max_tokens=max_tok),
-                timeout=30.0,
-            )
-        except asyncio.TimeoutError:
-            err = "local llm timeout"
-            response = None
-    if (err or not response) and settings.is_groq_configured and not use_groq:
-        logger.warning("Local LLM failed (%s), Groq fallback", err)
-        groq = GroqClient(settings.groq_api_key, settings.groq_model, settings.groq_stt_model)
-        response, err = await groq.chat(messages, temperature=0.6, max_tokens=max_tok)
-    if err:
-        logger.error("AI chat error: %s", err)
-        if "429" in str(err) or "rate_limit" in str(err).lower():
-            logger.info("Rate limit, trying Gemini fallback...")
-            gemini = get_gemini_client()
-            response, gemini_err = await gemini.chat(messages, temperature=0.7)
-            if gemini_err:
-                logger.error("Gemini fallback also failed: %s", gemini_err)
-                return content.get_ai_fallback_message(lang, city) + " [DONE]"
-            logger.info(f"Gemini fallback success: '{response[:100] if response else 'None'}...'")
-            return response
-        return None
-    logger.info(f"Groq AI response: '{response[:100] if response else 'None'}...' for text='{text[:30]}...'")
-    return response
+    return await run_kb_agent(text, session, ai)
 
 
 async def _process_flow_step(
@@ -1295,7 +1266,7 @@ async def _handle_telegram_update_inner(
 
     # Голос/текст «хочу кредит» — сразу меню (до приветствий и small talk)
     if session.get("state") == "idle" and is_vague_credit_request(text_stripped):
-        await _tg_reply_credit_clarify(tg_client, chat_id, session)
+        await _tg_reply_credit_clarify(tg_client, chat_id, session, ai, text_stripped)
         return
 
     # Явное «русский» / «қазақша» вне мастера — переключить без повторных вопросов
@@ -1341,11 +1312,23 @@ async def _handle_telegram_update_inner(
                 await _save_session_logged(chat_id, session)
                 await send_tg_main_menu(tg_client, chat_id, session)
                 return
-            if is_vague_credit_request(text_stripped):
-                session["state"] = "idle"
-                await _tg_reply_credit_clarify(tg_client, chat_id, session)
-                return
             session["state"] = "selecting_city"
+            if await _try_hybrid_send(
+                text_stripped,
+                session,
+                ai,
+                None,
+                tg_client=tg_client,
+                chat_id=chat_id,
+                nav_step="city",
+            ):
+                await _save_session_logged(chat_id, session)
+                return
+            if is_vague_credit_request(text_stripped):
+                await _tg_reply_credit_clarify(
+                    tg_client, chat_id, session, ai, text_stripped
+                )
+                return
             await _save_session_logged(chat_id, session)
             await send_tg_city_step(tg_client, chat_id, session)
             return
@@ -1381,17 +1364,15 @@ async def _handle_telegram_update_inner(
             await save_session(chat_id, session)
             return
 
-        core = strip_leading_greeting(text_stripped)
-        fast = try_fast_response(
-            core,
-            lang,
-            session.get("city"),
-            "telegram",
-            city_confirmed=False,
-            session=session,
-        )
-        if fast:
-            await send_tg_with_hint(tg_client, chat_id, session, fast, nav_step="main")
+        if await _try_hybrid_send(
+            text_stripped,
+            session,
+            ai,
+            None,
+            tg_client=tg_client,
+            chat_id=chat_id,
+            nav_step="city",
+        ):
             await save_session(chat_id, session)
             return
 
@@ -1406,13 +1387,15 @@ async def _handle_telegram_update_inner(
             await send_tg_main_menu(tg_client, chat_id, session)
             return
 
-        await send_tg_with_hint(
-            tg_client,
-            chat_id,
-            session,
-            get_text_fallback_reply(lang, platform="telegram"),
-            nav_step="city",
-        )
+        if not is_wizard_nav_input(text_stripped, session):
+            reply = await _get_bot_reply(text_stripped, session, ai)
+            if reply:
+                await send_tg_with_hint(
+                    tg_client, chat_id, session, reply, nav_step="city"
+                )
+                await save_session(chat_id, session)
+                return
+        await send_tg_city_step(tg_client, chat_id, session)
         await save_session(chat_id, session)
         return
 
@@ -1904,14 +1887,10 @@ async def _handle_whatsapp_update_inner(
             if transcribed and transcribed.strip():
                 raw_text = transcribed.strip()
                 if not session.get("lang_locked"):
-                    if detected_lang in ("ru", "kk"):
-                        session["lang"] = detected_lang
-                    elif any(c in KK_CHARS for c in raw_text.lower()):
+                    session["lang"] = DEFAULT_LANG
+                    if any(c in KK_CHARS for c in raw_text.lower()) or detected_lang == "kk":
                         session["lang"] = "kk"
                 lang_ui = session.get("lang", DEFAULT_LANG)
-
-                heard = "Танылды" if lang_ui == "kk" else "Распознано"
-                await send_wa_with_hint(f"🎤 {heard}: _{raw_text}_", lang_ui)
 
                 route = await prepare_voice_input(raw_text, session)
                 logger.warning(
@@ -2083,18 +2062,15 @@ async def _handle_whatsapp_update_inner(
                     session["lang"],
                 )
                 return
-            if is_vague_credit_request(text_stripped):
-                session["state"] = "idle"
-                await send_wa_with_hint(get_credit_choice_menu(session["lang"]), session["lang"])
-                await _send_voice_text_nudge(
-                    session,
-                    chat_id,
-                    session["lang"],
-                    lambda m: send_wa_with_hint(m, session["lang"]),
-                )
+            session["state"] = "selecting_city"
+            if await _try_hybrid_send(
+                text_stripped,
+                session,
+                ai,
+                lambda m: send_wa_with_hint(m, session["lang"]),
+            ):
                 await save_session(chat_id, session)
                 return
-            session["state"] = "selecting_city"
             await save_session(chat_id, session)
             await send_wa_with_hint(get_city_step_text(session["lang"]), session["lang"])
             return
@@ -2112,17 +2088,15 @@ async def _handle_whatsapp_update_inner(
                 session["lang"],
             )
             return
-        if is_vague_credit_request(text_stripped):
-            session["lang"] = _detect_lang_from_free_text(text_stripped) or lang
-            session["lang_locked"] = True
-            session["state"] = "idle"
-            await send_wa_with_hint(get_credit_choice_menu(session["lang"]), session["lang"])
-            await _send_voice_text_nudge(
-                session,
-                chat_id,
-                session["lang"],
-                lambda m: send_wa_with_hint(m, session["lang"]),
-            )
+        session["lang"] = _detect_lang_from_free_text(text_stripped) or lang
+        session["lang_locked"] = True
+        session["state"] = "selecting_city"
+        if await _try_hybrid_send(
+            text_stripped,
+            session,
+            ai,
+            lambda m: send_wa_with_hint(m, session["lang"]),
+        ):
             await save_session(chat_id, session)
             return
         if should_use_universal_fallback(text_stripped):
@@ -2153,17 +2127,12 @@ async def _handle_whatsapp_update_inner(
             await save_session(chat_id, session)
             return
 
-        core = strip_leading_greeting(text_stripped)
-        fast = try_fast_response(
-            core,
-            lang,
-            session.get("city"),
-            "whatsapp",
-            city_confirmed=False,
-            session=session,
-        )
-        if fast:
-            await send_wa_with_hint(fast, lang, nav_step="main")
+        if await _try_hybrid_send(
+            text_stripped,
+            session,
+            ai,
+            lambda m: send_wa_with_hint(m, lang),
+        ):
             await save_session(chat_id, session)
             return
 
@@ -2181,7 +2150,13 @@ async def _handle_whatsapp_update_inner(
             )
             return
 
-        await send_wa_universal(lang)
+        if not is_wizard_nav_input(text_stripped, session):
+            reply = await _get_bot_reply(text_stripped, session, ai)
+            if reply:
+                await send_wa_with_hint(reply, lang, nav_step="city")
+                await save_session(chat_id, session)
+                return
+        await send_wa_with_hint(get_city_step_text(lang), lang)
         await save_session(chat_id, session)
         return
 

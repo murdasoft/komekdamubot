@@ -87,6 +87,23 @@ def test_map_intent_from_kazakh_voice():
     assert digit == "4"
 
 
+def test_voice_greeting_plus_credit_not_menu_zero():
+    """«сәлеметсізбе + несие» — не сворачивать в меню 0."""
+    from app.bot.voice_router import map_menu_phrase, route_voice_text
+
+    raw = "сәлеметсізбе менінше алғым келеді"
+    assert map_menu_phrase(raw) is None
+    r = route_voice_text(raw, {"lang": "kk", "state": "idle", "city_confirmed": True})
+    assert r.source == "raw"
+    assert "алғым" in r.text
+
+
+def test_stt_fix_meninshe_to_nesie():
+    from app.bot.stt_normalize import normalize_stt_voice_text
+
+    assert "несие" in normalize_stt_voice_text("сәлеметсізбе менінше алғым келеді")
+
+
 def test_resolve_menu_digit_combined():
     session = {"lang": "ru", "state": "idle"}
     assert resolve_menu_digit_from_text("рефинансирование кредита", session) == "6"

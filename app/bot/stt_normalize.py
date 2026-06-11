@@ -99,10 +99,42 @@ def looks_like_misheard_ip(text: str, *, borrower_context: bool = False) -> bool
     return False
 
 
+# Типичные ошибки Whisper на қазақша
+_STT_KK_REWRITES: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bменінше\b", re.I), "мен несие"),
+    (re.compile(r"\bменше\b", re.I), "мен несие"),
+    (re.compile(r"\bменесие\b", re.I), "мен несие"),
+    (re.compile(r"\bменеси\b", re.I), "мен несие"),
+    (re.compile(r"\bнеси\b", re.I), "несие"),
+    (re.compile(r"\bнисие\b", re.I), "несие"),
+    (re.compile(r"\bнесиe\b", re.I), "несие"),
+    (re.compile(r"\bсалеметсиз\b", re.I), "сәлеметсіз"),
+    (re.compile(r"\bсалем\b", re.I), "сәлем"),
+    (re.compile(r"\bкасипкер\b", re.I), "кәсіпкер"),
+    (re.compile(r"\bкасип\b", re.I), "кәсіп"),
+    (re.compile(r"\bалгым\b", re.I), "алғым"),
+    (re.compile(r"\bкерек па\b", re.I), "керек па"),
+    (re.compile(r"\bалгым келеди\b", re.I), "алғым келеді"),
+    (re.compile(r"\bалгым келеді\b", re.I), "алғым келеді"),
+)
+
+
+def normalize_stt_voice_text(text: str, session: dict | None = None) -> str:
+    """Поправки STT перед маршрутизацией (голос ≈ текст)."""
+    if not text or not text.strip():
+        return text
+    t = text.strip()
+    for pattern, repl in _STT_KK_REWRITES:
+        t = pattern.sub(repl, t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
 def normalize_stt_borrower_answer(text: str, session: dict | None = None) -> str:
     """Rewrite misheard entity answers before intent matching."""
     if not text or not text.strip():
         return text
+    text = normalize_stt_voice_text(text, session)
     borrower_context = session_awaits_borrower_type(session)
     if looks_like_misheard_ip(text, borrower_context=borrower_context):
         logger.info("STT entity fix: %r -> ИП (borrower_context=%s)", text[:40], borrower_context)

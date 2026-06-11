@@ -28,6 +28,18 @@ class TelegramClient:
             logger.exception("Telegram API error: %s", e)
             return None
 
+    async def send_chat_action(
+        self,
+        chat_id: str | int,
+        action: str = "typing",
+    ) -> bool:
+        """typing | record_voice | upload_voice — без лишних сообщений в чате."""
+        result = await self._post(
+            "sendChatAction",
+            {"chat_id": chat_id, "action": action},
+        )
+        return bool(result and result.get("ok"))
+
     async def send_message(
         self,
         chat_id: str | int,
@@ -161,6 +173,21 @@ def get_voice_file_id(body: dict[str, Any]) -> str | None:
         return msg["voice"].get("file_id")
     audio = msg.get("audio", {})
     return audio.get("file_id")
+
+
+def get_voice_duration_sec(body: dict[str, Any]) -> float | None:
+    """Длительность voice/audio в секундах (Telegram API)."""
+    msg = body.get("message", {})
+    voice = msg.get("voice") or {}
+    audio = msg.get("audio") or {}
+    raw = voice.get("duration") if voice else audio.get("duration")
+    if raw is None:
+        return None
+    try:
+        sec = float(raw)
+        return sec if sec > 0 else None
+    except (TypeError, ValueError):
+        return None
 
 
 def get_file_url(token: str, file_path: str) -> str:

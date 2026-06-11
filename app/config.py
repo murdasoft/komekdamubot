@@ -48,6 +48,19 @@ class Settings:
         default_factory=lambda: _getenv("TOGETHER_STT_MODEL", "openai/whisper-large-v3")
     )
 
+    # Hugging Face — казахские Whisper-модели (Inference API)
+    huggingface_api_key: str = field(
+        default_factory=lambda: _getenv("HUGGINGFACE_API_KEY", "") or _getenv("HF_TOKEN", "")
+    )
+    hf_stt_enabled: bool = field(
+        default_factory=lambda: _getenv("HF_STT_ENABLED", "true").lower() in ("1", "true", "yes")
+    )
+    hf_stt_model: str = field(
+        default_factory=lambda: _getenv(
+            "HF_STT_MODEL", "abilmansplus/whisper-turbo-kaz-rus-v1"
+        )
+    )
+
     # Groq AI — основной LLM + STT (OpenAI-compatible API)
     groq_api_key: str = field(default_factory=lambda: _getenv("GROQ_API_KEY"))
     groq_model: str = field(
@@ -69,9 +82,15 @@ class Settings:
         default_factory=lambda: _getenv("GROQ_ENABLED", "true").lower() in ("1", "true", "yes")
     )
 
-    # Голос: STT и разбор намерения (без свободного ответа LLM)
+    # Голос: STT — together | groq | ensemble (Together+Groq параллельно, kk первым)
+    voice_stt_provider: str = field(
+        default_factory=lambda: _getenv("VOICE_STT_PROVIDER", "ensemble").lower()
+    )
     voice_stt_prefer_groq: bool = field(
-        default_factory=lambda: _getenv("GROQ_VOICE_STT", "true").lower() in ("1", "true", "yes")
+        default_factory=lambda: _getenv("GROQ_VOICE_STT", "false").lower() in ("1", "true", "yes")
+    )
+    stt_llm_refine_enabled: bool = field(
+        default_factory=lambda: _getenv("STT_LLM_REFINE", "true").lower() in ("1", "true", "yes")
     )
     groq_voice_intent: bool = field(
         default_factory=lambda: _getenv("GROQ_VOICE_INTENT", "false").lower() in ("1", "true", "yes")
@@ -95,7 +114,7 @@ class Settings:
         default_factory=lambda: _getenv("HYBRID_AI", "true").lower() in ("1", "true", "yes")
     )
     local_llm_max_tokens: int = field(
-        default_factory=lambda: int(_getenv("LOCAL_LLM_MAX_TOKENS", "256"))
+        default_factory=lambda: int(_getenv("LOCAL_LLM_MAX_TOKENS", "512"))
     )
     local_llm_num_ctx: int = field(
         default_factory=lambda: int(_getenv("LOCAL_LLM_NUM_CTX", "2048"))
@@ -205,13 +224,19 @@ class Settings:
         return False
 
     @property
+    def is_hf_stt_configured(self) -> bool:
+        return bool(self.huggingface_api_key and self.hf_stt_enabled)
+
+    @property
     def is_voice_stt_configured(self) -> bool:
-        """Голосовые: Groq Whisper, VPS faster-whisper или legacy Together."""
+        """Голосовые: Together / HF / Groq / local Whisper."""
+        if self.is_together_configured:
+            return True
+        if self.is_hf_stt_configured:
+            return True
         if self.is_groq_configured:
             return True
         if self.local_whisper_url:
-            return True
-        if self.is_together_configured:
             return True
         return self.is_local_ai_configured
     

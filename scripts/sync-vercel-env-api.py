@@ -101,7 +101,9 @@ def main() -> None:
         "GROQ_ENABLED": "true",
         "GROQ_MODEL": "openai/gpt-oss-120b",
         "GROQ_STT_MODEL": "whisper-large-v3",
-        "GROQ_VOICE_STT": "true",
+        "VOICE_STT_PROVIDER": "ensemble",
+        "STT_LLM_REFINE": "true",
+        "GROQ_VOICE_STT": "false",
         "GROQ_VOICE_INTENT": "true",
         "GROQ_VOICE_INTENT_MODEL": "llama-3.1-8b-instant",
         "FAST_FAQ": "true",
@@ -113,11 +115,14 @@ def main() -> None:
         "REMINDER_DELAY_SECONDS": "3600",
         "ORDER_ABANDON_NUDGE_SECONDS": "1800",
         "HANDOFF_TIMEOUT_HOURS": "24",
-        "LOCAL_LLM_MAX_TOKENS": "256",
+        "LOCAL_LLM_MAX_TOKENS": "512",
         "GROQ_API_KEY": local.get("GROQ_API_KEY", ""),
         "TOGETHER_API_KEY": local.get("TOGETHER_API_KEY", ""),
         "TOGETHER_MODEL": "Qwen/Qwen2.5-7B-Instruct-Turbo",
         "TOGETHER_STT_MODEL": "openai/whisper-large-v3",
+        "HUGGINGFACE_API_KEY": local.get("HUGGINGFACE_API_KEY", "") or local.get("HF_TOKEN", ""),
+        "HF_STT_ENABLED": "true",
+        "HF_STT_MODEL": "abilmansplus/whisper-turbo-kaz-rus-v1",
         # Telegram
         "TELEGRAM_BOT_TOKEN": local.get("TELEGRAM_BOT_TOKEN", ""),
         "TELEGRAM_WEBHOOK_SECRET": local.get("TELEGRAM_WEBHOOK_SECRET", ""),
@@ -125,9 +130,25 @@ def main() -> None:
         "GREEN_API_INSTANCE_ID": local.get("GREEN_API_INSTANCE_ID", ""),
         "GREEN_API_TOKEN": local.get("GREEN_API_TOKEN", ""),
         "GREEN_API_WEBHOOK_TOKEN": local.get("GREEN_API_WEBHOOK_TOKEN", ""),
-        # Supabase
-        "SUPABASE_URL": supabase.get("SUPABASE_URL", "") or local.get("SUPABASE_URL", ""),
-        "SUPABASE_SERVICE_ROLE_KEY": supabase.get("SUPABASE_SERVICE_ROLE_KEY", "") or local.get("SUPABASE_SERVICE_ROLE_KEY", ""),
+        # Supabase (komek_* из Vercel Supabase integration)
+        "SUPABASE_URL": (
+            supabase.get("SUPABASE_URL", "")
+            or local.get("SUPABASE_URL", "")
+            or local.get("komek_SUPABASE_URL", "")
+            or local.get("NEXT_PUBLIC_komek_SUPABASE_URL", "")
+        ),
+        "SUPABASE_SERVICE_ROLE_KEY": (
+            supabase.get("SUPABASE_SERVICE_ROLE_KEY", "")
+            or local.get("SUPABASE_SERVICE_ROLE_KEY", "")
+            or local.get("komek_SUPABASE_SERVICE_ROLE_KEY", "")
+        ),
+        # Blob
+        "BLOB_READ_WRITE_TOKEN": local.get("BLOB_READ_WRITE_TOKEN", ""),
+        "BLOB_STORE_ID": local.get("BLOB_STORE_ID", "store_OTuiNVlUkxdaNaAx"),
+        "BLOB_BASE_URL": local.get(
+            "BLOB_BASE_URL", "https://otuinvlukxdanaax.private.blob.vercel-storage.com"
+        ),
+        "KK_CORPUS_USE_BLOB": local.get("KK_CORPUS_USE_BLOB", "true"),
     }
     _, data = api("GET", f"/v9/projects/{PROJECT}/env")
     existing = {e["key"]: e for e in data.get("envs", [])}

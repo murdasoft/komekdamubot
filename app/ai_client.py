@@ -4,26 +4,29 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Union
 
-from app.groq_client import GroqClient
-from app.local_ai_client import LocalAIClient
-from app.together_client import TogetherClient
-
 if TYPE_CHECKING:
     from app.config import Settings
+    from app.groq_client import GroqClient
+    from app.local_ai_client import LocalAIClient
+    from app.together_client import TogetherClient
 
-AIClient = Union[GroqClient, LocalAIClient, TogetherClient]
+AIClient = Union["GroqClient", "LocalAIClient", "TogetherClient"]
 
 
 def create_ai_client(settings: "Settings") -> AIClient | None:
     provider = settings.effective_ai_provider
 
     if provider == "groq" and settings.is_groq_configured:
+        from app.groq_client import GroqClient
+
         return GroqClient(
             api_key=settings.groq_api_key,
             model=settings.groq_model,
             stt_model=settings.groq_stt_model,
         )
     if provider == "local" and settings.local_llm_base_url:
+        from app.local_ai_client import LocalAIClient
+
         if not settings.local_whisper_url:
             raise ValueError("LOCAL_WHISPER_URL is required when AI_PROVIDER=local")
         return LocalAIClient(
@@ -35,12 +38,16 @@ def create_ai_client(settings: "Settings") -> AIClient | None:
             keep_alive=settings.local_llm_keep_alive,
         )
     if provider == "together" and settings.is_together_configured:
+        from app.together_client import TogetherClient
+
         return TogetherClient(
             api_key=settings.together_api_key,
             model=settings.together_model,
             stt_model=settings.together_stt_model,
         )
     if settings.is_groq_configured:
+        from app.groq_client import GroqClient
+
         return GroqClient(
             api_key=settings.groq_api_key,
             model=settings.groq_model,

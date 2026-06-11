@@ -57,6 +57,7 @@ FAQ_PATTERNS: list[_Pattern] = [
     _Pattern(("рефинанс", "перекрыть кредит", "снизить ставку", "қайта қаржыландыру"), product_key="refinancing", weight=4),
     _Pattern(("кредит на бизнес", "бизнес кредит", "бизнес несиесі", "для ип", "для тоо"), product_key="business_credit", weight=4),
     _Pattern(("потребительск", "кредит для себя", "жеке несие", "взять кредит", "нужен кредит"), product_key="personal_credit", weight=3),
+    _Pattern(("несие керек", "кредит керек", "қарыз керек", "кредит алу", "несие алу"), product_key="personal_credit", weight=5),
     _Pattern(("лимит на физ", "лимит физ", "физлиц", "физическ", "жеке тұлға"), product_key="personal_credit", weight=5),
     _Pattern(("ипотек", "пәтер", "квартир", "жилье", "үй сатып"), product_key="mortgage_standard", weight=2),
     _Pattern(("даму", "damu"), product_key="damu", weight=2),
