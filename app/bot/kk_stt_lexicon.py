@@ -7,6 +7,7 @@ from functools import lru_cache
 
 from app.bot.kazakh_phrases import KK_PHRASES_EXTENDED
 from app.bot.stt_normalize import stt_prompt_for_session
+from app.bot.stt_prompt_utils import GROQ_WHISPER_PROMPT_MAX_BYTES, truncate_whisper_prompt
 from app.kk_corpus_loader import get_phrases_top10k, get_stt_vocab
 
 logger = logging.getLogger(__name__)
@@ -95,14 +96,17 @@ def build_kk_whisper_prompt(session: dict | None = None, *, variant: int = 0) ->
 def _compact_prompt_base() -> str:
     words = ", ".join(get_finance_words(45))
     phrases = "; ".join(get_corpus_phrases(12, finance_only=True) or get_corpus_phrases(12))
-    return " ".join(
-        [
-            _DOMAIN_CORE,
-            f"Сөздер: {words}.",
-            f"Мысалдар: {phrases}.",
-            "Сәлеметсіз бе, мен несие алғым келеді. Несие керек па.",
-        ]
-    )[:680]
+    return truncate_whisper_prompt(
+        " ".join(
+            [
+                _DOMAIN_CORE,
+                f"Сөздер: {words}.",
+                f"Мысалдар: {phrases}.",
+                "Сәлеметсіз бе, мен несие алғым келеді. Несие керек па.",
+            ]
+        ),
+        GROQ_WHISPER_PROMPT_MAX_BYTES,
+    )
 
 
 def build_kk_whisper_prompt_compact(session: dict | None = None) -> str:
@@ -111,7 +115,7 @@ def build_kk_whisper_prompt_compact(session: dict | None = None) -> str:
     extra = stt_prompt_for_session(session)
     if extra:
         parts.append(extra)
-    return " ".join(parts)[:720]
+    return truncate_whisper_prompt(" ".join(parts), GROQ_WHISPER_PROMPT_MAX_BYTES)
 
 
 @lru_cache(maxsize=2)
@@ -125,7 +129,7 @@ def _standard_prompt_base(variant: int = 0) -> str:
             f"Фразалар: {phrases}.",
             "Мысал: Сәлеметсіз бе, мен несие алғым келеді. Қанша пайызбен бересіз?",
         ]
-    )[:1050]
+    )
 
 
 def build_kk_whisper_prompt_standard(
@@ -138,7 +142,7 @@ def build_kk_whisper_prompt_standard(
     extra = stt_prompt_for_session(session)
     if extra:
         parts.append(extra)
-    return " ".join(parts)[:1250]
+    return truncate_whisper_prompt(" ".join(parts), GROQ_WHISPER_PROMPT_MAX_BYTES)
 
 
 def estimate_audio_duration_sec(

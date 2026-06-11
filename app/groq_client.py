@@ -12,7 +12,8 @@ from typing import Any
 
 import httpx
 
-from app.ai_utils import detect_language_simple as _detect_language_simple
+from app.ai_utils import detect_language_simple
+from app.bot.stt_prompt_utils import GROQ_WHISPER_PROMPT_MAX_BYTES, truncate_whisper_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +105,7 @@ class GroqClient:
         if language:
             data["language"] = language
         if prompt:
-            data["prompt"] = prompt
+            data["prompt"] = truncate_whisper_prompt(prompt, GROQ_WHISPER_PROMPT_MAX_BYTES)
         headers = {"Authorization": f"Bearer {self.api_key}"}
         
         try:

@@ -15,6 +15,7 @@ from app.bot.kk_stt_lexicon import (
     pick_stt_prompt_profile,
 )
 from app.bot.stt_normalize import normalize_stt_voice_text
+from app.bot.stt_prompt_utils import GROQ_WHISPER_PROMPT_MAX_BYTES, truncate_whisper_prompt
 from app.bot.stt_refine import refine_kk_transcript
 
 if TYPE_CHECKING:
@@ -451,6 +452,27 @@ async def transcribe_voice_message(
                     return text, detected
             except Exception:
                 logger.exception("STT fallback %s lang=%s FAILED", try_fn.__name__, lang)
+
+    # Последний шанс: короткий prompt (Groq лимит — 896 UTF-8 байт)
+    short_prompt = truncate_whisper_prompt(
+        "KOMEK DAMU. Несие, кредит, ипотека, DAMU. "
+        "Сәлеметсіз бе, мен несие алғым келеді.",
+        GROQ_WHISPER_PROMPT_MAX_BYTES,
+    )
+    for lang in stt_lang_order:
+        for try_fn in (_try_groq, _try_together):
+            try:
+                text, det = await try_fn(
+                    settings, audio_bytes, filename, lang, short_prompt
+                )
+                if text and text.strip():
+                    text, detected = await _finalize_transcript(
+                        text.strip(), det or lang_hint or "kk", settings, session
+                    )
+                    logger.info("Voice STT short-prompt fallback %s lang=%s", try_fn.__name__, lang)
+                    return text, detected
+            except Exception:
+                logger.exception("STT short-prompt fallback %s failed", try_fn.__name__)
 
     logger.warning("Voice STT: all providers failed")
     return None, lang_hint or "kk"
