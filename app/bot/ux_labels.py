@@ -21,6 +21,16 @@ LIST_TRIGGER_KEYWORDS = (
     "/menu",
 )
 
+def normalize_list_trigger(text: str | None) -> str:
+    """Telegram шлёт /start@BotName — приводим к /start."""
+    raw = (text or "").strip()
+    lower = raw.lower()
+    for cmd in ("/start", "/menu"):
+        if lower == cmd or lower.startswith(f"{cmd}@"):
+            return cmd
+    return raw
+
+
 LIST_TRIGGER_EXACT = (
     "/start",
     "/menu",

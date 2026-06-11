@@ -67,11 +67,13 @@ from app.bot.menu import (
     menu_choice_body,
     resolve_menu_digit,
 )
-from app.bot.telegram_nav import (
-    handle_nav_callback,
-    render_screen,
-    send_main_menu_message,
-    use_buttons_hint,
+from app.bot.telegram_nav import handle_nav_callback
+from app.bot.tg_wa_ui import (
+    send_tg_city_help,
+    send_tg_city_step,
+    send_tg_lang_step,
+    send_tg_main_menu,
+    send_tg_with_hint,
 )
 from app.bot.wizard import (
     get_city_step_help,
@@ -90,6 +92,7 @@ from app.bot.ux_labels import (
     LIST_TRIGGER_KEYWORDS,
     TYPE_LIST_HINT_KK,
     TYPE_LIST_HINT_RU,
+    normalize_list_trigger,
 )
 
 logger = logging.getLogger(__name__)
@@ -383,31 +386,38 @@ async def _tg_reply_credit_clarify(
     chat_id: str,
     session: Dict,
 ) -> None:
-    """Telegram: кредит — одно сообщение с inline-кнопками (не WA-цифры)."""
+    """Telegram: как WhatsApp — меню цифрами 1–7."""
     lang = session.get("lang", DEFAULT_LANG)
     _ensure_session_defaults(session)
 
     if not session.get("city_confirmed"):
         session["state"] = "selecting_city"
-        await render_screen(tg_client, chat_id, session, "city")
-        hint = (
-            "🤖 *Чат-бот:* сначала выберите город кнопкой 👇"
-            if lang == "ru"
-            else "🤖 *Чат-бот:* алдымен қалады таңдаңыз 👇"
-        )
-        await tg_client.send_message(chat_id, hint)
+        await send_tg_city_step(tg_client, chat_id, session)
     else:
-        lead = (
-            "🤖 *Чат-бот понял:* нужен кредит.\n*Нажмите кнопку раздела:*"
-            if lang == "ru"
-            else "🤖 *Чат-бот түсінді:* несие керек.\n*Бөлім түймесін басыңыз:*"
-        )
-        await send_main_menu_message(
-            tg_client, chat_id, session, lead=lead, force_new=True
+        await send_tg_with_hint(
+            tg_client,
+            chat_id,
+            session,
+            get_credit_choice_menu(lang),
+            nav_step="main",
         )
 
     await _send_voice_text_nudge(session, chat_id, lang, tg_client.send_message)
     await _save_session_logged(chat_id, session)
+
+
+def _tg_send_bound(tg_client, chat_id: str, session: Dict, *, nav_step: str | None = None):
+    async def send_fn(message: str, reply_lang: str | None = None):
+        await send_tg_with_hint(
+            tg_client,
+            chat_id,
+            session,
+            message,
+            reply_lang=reply_lang,
+            nav_step=nav_step,
+        )
+
+    return send_fn
 
 
 async def _block_if_human_hours(chat_id: str, session: Dict, send_fn) -> bool:
@@ -1080,7 +1090,7 @@ async def _send_menu_choice(
 
     await send_message_func(body)
 
-    if choice_key == "mortgage_menu" and platform == "whatsapp":
+    if choice_key == "mortgage_menu":
         session["submenu"] = "mortgage"
         await send_message_func(content.get_wa_mortgage_menu(lang))
     return True
@@ -1145,6 +1155,8 @@ async def _handle_telegram_update_inner(
     chat_id, text, sender_name, callback_id = extract_update_info(body)
     if not chat_id:
         return
+
+    text = normalize_list_trigger(text)
     
     msg_id = get_message_id(body)
     
@@ -1168,11 +1180,12 @@ async def _handle_telegram_update_inner(
         return
 
     session = await _get_session(chat_id)
-    if await _block_if_human_hours(chat_id, session, tg_client.send_message):
+    restart = bool(text and text.strip() in LIST_TRIGGER_EXACT)
+    if not restart and await _block_if_human_hours(chat_id, session, tg_client.send_message):
         return
 
     # /start и «список» — шаг 1: язык
-    if text and text.strip() in LIST_TRIGGER_EXACT:
+    if restart:
         if not chat_id or chat_id == "None":
             logger.error(f"Invalid chat_id for /start: {chat_id}")
             return
@@ -1181,10 +1194,10 @@ async def _handle_telegram_update_inner(
         _sessions[chat_id]["platform"] = "tg"
         session = _sessions[chat_id]
         await save_session(chat_id, session)
-        await render_screen(tg_client, chat_id, session, "lang")
+        await send_tg_lang_step(tg_client, chat_id, session)
         return
 
-    # Inline-кнопки: одно сообщение, редактирование на месте
+    # Inline-кнопки (legacy): тот же результат, что цифры в WhatsApp
     if callback_id and text and text.strip().startswith(("nav:", "menu:", "mort:")):
         await tg_client.answer_callback_query(callback_id)
         cq_msg = body.get("callback_query", {}).get("message", {})
@@ -1209,12 +1222,20 @@ async def _handle_telegram_update_inner(
         await save_session(chat_id, session)
         return
 
-    # Handle 99 for language re-selection
     if text and text.strip() == "99":
         session["state"] = "selecting_lang"
-        mid = session.get("menu_message_id")
-        await render_screen(tg_client, chat_id, session, "lang", message_id=mid)
+        session.pop("city_confirmed", None)
         await save_session(chat_id, session)
+        await send_tg_lang_step(tg_client, chat_id, session)
+        return
+
+    if text and text.strip() == "98":
+        if not session.get("lang_locked"):
+            await send_tg_lang_step(tg_client, chat_id, session)
+            return
+        session["state"] = "selecting_city"
+        await save_session(chat_id, session)
+        await send_tg_city_step(tg_client, chat_id, session)
         return
     
     if sender_name:
@@ -1256,16 +1277,13 @@ async def _handle_telegram_update_inner(
     msg = body.get("message") or {}
     if not text and msg and (msg.get("photo") or msg.get("document")):
         lang_ph = session.get("lang", DEFAULT_LANG)
-        screen = "main" if session.get("city_confirmed") else (
-            "city" if session.get("state") == "selecting_city" else "lang"
-        )
-        mid = session.get("menu_message_id")
-        hint = get_media_menu_reply(lang_ph)
-        if mid:
-            await tg_client.edit_message(
-                chat_id, mid, hint, reply_markup=None
-            )
-        await render_screen(tg_client, chat_id, session, screen, message_id=mid)
+        await tg_client.send_message(chat_id, get_media_menu_reply(lang_ph))
+        if session.get("city_confirmed"):
+            await send_tg_main_menu(tg_client, chat_id, session)
+        elif session.get("state") == "selecting_city":
+            await send_tg_city_step(tg_client, chat_id, session)
+        else:
+            await send_tg_lang_step(tg_client, chat_id, session)
         return
 
     if not text:
@@ -1274,10 +1292,6 @@ async def _handle_telegram_update_inner(
     text_stripped = text.strip()
     lang = session.get("lang", DEFAULT_LANG)
     _ensure_session_defaults(session)
-
-    # Handle /start or menu return
-    if text_stripped in LIST_TRIGGER_EXACT:
-        return
 
     # Голос/текст «хочу кредит» — сразу меню (до приветствий и small talk)
     if session.get("state") == "idle" and is_vague_credit_request(text_stripped):
@@ -1293,16 +1307,14 @@ async def _handle_telegram_update_inner(
 
     if apply_lang_switch(text_stripped, session) and is_explicit_lang_message(text_stripped):
         lang = session["lang"]
-        await tg_client.send_message(chat_id, lang_switch_confirmation(lang))
-        if session.get("city_confirmed"):
-            await render_screen(
-                tg_client, chat_id, session, "main", message_id=session.get("menu_message_id")
-            )
+        await send_tg_with_hint(
+            tg_client, chat_id, session, lang_switch_confirmation(lang), reply_lang=lang
+        )
+        if session.get("city_confirmed") and session.get("city"):
+            await send_tg_main_menu(tg_client, chat_id, session)
         elif session.get("state") != "selecting_city":
             session["state"] = "selecting_city"
-            await render_screen(
-                tg_client, chat_id, session, "city", message_id=session.get("menu_message_id")
-            )
+            await send_tg_city_step(tg_client, chat_id, session)
         await _save_session_logged(chat_id, session)
         return
 
@@ -1314,8 +1326,8 @@ async def _handle_telegram_update_inner(
             session["lang_locked"] = True
             session["state"] = "selecting_city"
             session.pop("lang_retry", None)
-            await render_screen(tg_client, chat_id, session, "city", message_id=session.get("menu_message_id"))
             await _save_session_logged(chat_id, session)
+            await send_tg_city_step(tg_client, chat_id, session)
             return
         if not is_explicit_lang_message(text_stripped):
             session["lang"] = _detect_lang_from_free_text(text_stripped) or DEFAULT_LANG
@@ -1326,30 +1338,63 @@ async def _handle_telegram_update_inner(
                 session["city"] = found_city
                 session["city_confirmed"] = True
                 session["state"] = "idle"
-                await render_screen(tg_client, chat_id, session, "main", message_id=session.get("menu_message_id"))
                 await _save_session_logged(chat_id, session)
+                await send_tg_main_menu(tg_client, chat_id, session)
                 return
             if is_vague_credit_request(text_stripped):
                 session["state"] = "idle"
                 await _tg_reply_credit_clarify(tg_client, chat_id, session)
                 return
             session["state"] = "selecting_city"
-            await render_screen(tg_client, chat_id, session, "city", message_id=session.get("menu_message_id"))
             await _save_session_logged(chat_id, session)
+            await send_tg_city_step(tg_client, chat_id, session)
             return
         attempt = session.get("lang_retry", 0)
         session["lang_retry"] = attempt + 1
-        if attempt == 0:
-            await render_screen(
-                tg_client, chat_id, session, "lang", message_id=session.get("menu_message_id")
-            )
-        else:
-            await tg_client.send_message(chat_id, get_lang_retry_message(lang, attempt))
+        await send_tg_with_hint(
+            tg_client,
+            chat_id,
+            session,
+            get_lang_retry_message(lang, attempt),
+            nav_step="lang",
+        )
         await _save_session_logged(chat_id, session)
         return
 
-    # Selecting city: accept digits AND free text (like WhatsApp)
     if session.get("state") == "selecting_city":
+        if text_stripped == "7":
+            session["state"] = "handoff"
+            session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
+            await send_tg_with_hint(
+                tg_client,
+                chat_id,
+                session,
+                content.get_operator_message_with_phone(lang, None, "telegram"),
+                nav_step="main",
+            )
+            await _notify_manager(
+                f"🚨 *Менеджер на шаге города (Telegram)*\nChat: `{chat_id}`",
+                chat_id,
+                "telegram",
+                session=session,
+            )
+            await save_session(chat_id, session)
+            return
+
+        core = strip_leading_greeting(text_stripped)
+        fast = try_fast_response(
+            core,
+            lang,
+            session.get("city"),
+            "telegram",
+            city_confirmed=False,
+            session=session,
+        )
+        if fast:
+            await send_tg_with_hint(tg_client, chat_id, session, fast, nav_step="main")
+            await save_session(chat_id, session)
+            return
+
         city_key = resolve_city_digit(text_stripped)
         if not city_key:
             city_key = detect_city(text_stripped)
@@ -1357,16 +1402,31 @@ async def _handle_telegram_update_inner(
             session["city"] = city_key
             session["city_confirmed"] = True
             session["state"] = "idle"
-            await render_screen(tg_client, chat_id, session, "main", message_id=session.get("menu_message_id"))
             await save_session(chat_id, session)
+            await send_tg_main_menu(tg_client, chat_id, session)
             return
-        mid = session.get("menu_message_id")
-        hint = use_buttons_hint(lang)
-        if mid:
-            await tg_client.edit_message(chat_id, mid, hint, reply_markup=None)
+
+        await send_tg_with_hint(
+            tg_client,
+            chat_id,
+            session,
+            get_text_fallback_reply(lang, platform="telegram"),
+            nav_step="city",
+        )
+        await save_session(chat_id, session)
+        return
+
+    if text_stripped == "0":
+        if session.get("city_confirmed") and session.get("city"):
+            await send_tg_main_menu(tg_client, chat_id, session)
+        elif session.get("state") == "selecting_city":
+            await send_tg_city_help(tg_client, chat_id, session)
+        elif session.get("lang_locked"):
+            session["state"] = "selecting_city"
+            await send_tg_city_step(tg_client, chat_id, session)
         else:
-            await tg_client.send_message(chat_id, hint)
-        await render_screen(tg_client, chat_id, session, "city")
+            session["state"] = "selecting_lang"
+            await send_tg_lang_step(tg_client, chat_id, session)
         await save_session(chat_id, session)
         return
     
@@ -1395,21 +1455,18 @@ async def _handle_telegram_update_inner(
     # Check if user asked for menu (any platform)
     if any(w in text_stripped.lower() for w in LIST_TRIGGER_KEYWORDS) and session.get("state") == "idle":
         if session.get("city_confirmed"):
-            await render_screen(
-                tg_client, chat_id, session, "main", message_id=session.get("menu_message_id")
-            )
+            await send_tg_main_menu(tg_client, chat_id, session)
         else:
-            await render_screen(tg_client, chat_id, session, "lang")
+            await send_tg_lang_step(tg_client, chat_id, session)
         return
 
-    # Только приветствие без города — ведём в мастер; голос/вопрос не глушим
     if (
         session.get("state") == "idle"
         and not session.get("city_confirmed")
         and not session.get("lang_locked")
         and is_pure_greeting(text_stripped)
     ):
-        await render_screen(tg_client, chat_id, session, "lang")
+        await send_tg_lang_step(tg_client, chat_id, session)
         await _save_session_logged(chat_id, session)
         return
 
@@ -1421,11 +1478,11 @@ async def _handle_telegram_update_inner(
         is_pure_greeting(text_stripped) or detect_small_talk_intent(text_stripped) == "greeting"
     ):
         if not session.get("lang_locked"):
-            await render_screen(tg_client, chat_id, session, "lang")
+            await send_tg_lang_step(tg_client, chat_id, session)
         elif not session.get("city_confirmed"):
-            await render_screen(tg_client, chat_id, session, "city", message_id=session.get("menu_message_id"))
+            await send_tg_city_step(tg_client, chat_id, session)
         else:
-            await render_screen(tg_client, chat_id, session, "main", message_id=session.get("menu_message_id"))
+            await send_tg_main_menu(tg_client, chat_id, session)
         await save_session(chat_id, session)
         return
 
@@ -1457,7 +1514,7 @@ async def _handle_telegram_update_inner(
                 session["city"] = opts[idx]
                 session["city_confirmed"] = True
                 session.pop("nearby_pick", None)
-                await render_screen(tg_client, chat_id, session, "main")
+                await send_tg_main_menu(tg_client, chat_id, session)
                 await save_session(chat_id, session)
                 return
             session.pop("nearby_pick", None)
@@ -1467,7 +1524,7 @@ async def _handle_telegram_update_inner(
             session["city"] = found_city
             session["city_confirmed"] = True
             session.pop("nearby_pick", None)
-            await render_screen(tg_client, chat_id, session, "main", message_id=session.get("menu_message_id"))
+            await send_tg_main_menu(tg_client, chat_id, session)
             await save_session(chat_id, session)
             return
 
@@ -1485,13 +1542,67 @@ async def _handle_telegram_update_inner(
     # Ответ: FAQ мгновенно, без нейросети (idle, не в сценарии)
     if session.get("state") == "idle" and not callback_id:
         if is_pure_greeting(text_stripped):
-            await render_screen(
-                tg_client, chat_id, session, "main", message_id=session.get("menu_message_id")
-            )
+            await send_tg_main_menu(tg_client, chat_id, session)
             await _save_session_logged(chat_id, session)
             return
 
-        # Голос/текст с продуктом → меню или карточка продукта (1–7)
+        from app.bot.voice_router import extract_spoken_digit, map_menu_phrase
+
+        _maybe_digit = text_stripped
+        phrase_digit = map_menu_phrase(_maybe_digit)
+        if phrase_digit and phrase_digit not in ("0", "98", "99"):
+            _maybe_digit = phrase_digit
+        else:
+            spoken = extract_spoken_digit(_maybe_digit)
+            if spoken and spoken not in ("0", "98", "99"):
+                _maybe_digit = spoken
+
+        if session.get("submenu") == "mortgage":
+            mapped_mort = content.WA_MORTGAGE_DIGIT_MAP.get(_maybe_digit)
+            if mapped_mort == "back_to_main":
+                session["submenu"] = None
+                await send_tg_main_menu(tg_client, chat_id, session)
+                await _save_session_logged(chat_id, session)
+                return
+            if mapped_mort:
+                session["submenu"] = None
+                if await _try_handle_menu_digit(
+                    mapped_mort,
+                    session,
+                    _tg_send_bound(tg_client, chat_id, session, nav_step="main"),
+                    platform="telegram",
+                ):
+                    await _save_session_logged(chat_id, session)
+                    return
+
+        if _maybe_digit in content.WA_DIGIT_MAP and session.get("state") != "selecting_lang":
+            mapped = content.WA_DIGIT_MAP.get(_maybe_digit)
+            if mapped == "operator":
+                session["state"] = "handoff"
+                session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
+                await send_tg_with_hint(
+                    tg_client,
+                    chat_id,
+                    session,
+                    content.get_operator_message_with_phone(lang, session.get("city"), "telegram"),
+                )
+                await _notify_manager(
+                    f"🚨 *Меню → менеджер (Telegram)*\nChat: `{chat_id}`",
+                    chat_id,
+                    "telegram",
+                    session=session,
+                )
+                await _save_session_logged(chat_id, session)
+                return
+            if mapped and await _try_handle_menu_digit(
+                mapped,
+                session,
+                _tg_send_bound(tg_client, chat_id, session, nav_step="main"),
+                platform="telegram",
+            ):
+                await _save_session_logged(chat_id, session)
+                return
+
         menu_digit = resolve_menu_digit_from_text(text_stripped, session)
         if menu_digit and menu_digit not in ("0", "98", "99") and session.get("city_confirmed"):
             if menu_digit == "7":
@@ -1513,7 +1624,7 @@ async def _handle_telegram_update_inner(
             if await _try_handle_menu_digit(
                 menu_digit,
                 session,
-                lambda m: tg_client.send_message(chat_id, m),
+                _tg_send_bound(tg_client, chat_id, session, nav_step="main"),
                 platform="telegram",
             ):
                 await _send_voice_text_nudge(session, chat_id, lang, tg_client.send_message)
@@ -1545,10 +1656,16 @@ async def _handle_telegram_update_inner(
                 # Mark session as directed to office — repeat office reminder on further messages
                 session["state"] = "office_directed"
         else:
-            await tg_client.send_message(
-                chat_id, get_text_fallback_reply(lang, platform="telegram")
+            await send_tg_with_hint(
+                tg_client,
+                chat_id,
+                session,
+                get_text_fallback_reply(lang, platform="telegram"),
+                nav_step="main",
             )
-            await _send_voice_text_nudge(session, chat_id, lang, tg_client.send_message)
+            await _send_voice_text_nudge(
+                session, chat_id, lang, _tg_send_bound(tg_client, chat_id, session)
+            )
         await _save_session_logged(chat_id, session)
         return
     
@@ -1657,6 +1774,7 @@ async def _handle_whatsapp_update_inner(
     )
 
     chat_id, text, sender_name, media_url = extract_green_info(body)
+    text = normalize_list_trigger(text)
     md = body.get("messageData") or {}
     type_msg = md.get("typeMessage", "NO_TYPE")
     logger.warning(
@@ -1679,7 +1797,11 @@ async def _handle_whatsapp_update_inner(
     if sender_name:
         session["contact_name"] = sender_name
 
-    if await _block_if_human_hours(chat_id, session, wa_client.send_message):
+    restart = bool(
+        text
+        and (text.strip() in LIST_TRIGGER_EXACT or text.strip().lower() in ("start",))
+    )
+    if not restart and await _block_if_human_hours(chat_id, session, wa_client.send_message):
         return
 
     lang = session.get("lang", DEFAULT_LANG)

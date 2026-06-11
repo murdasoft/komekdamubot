@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.bot.business_hours import is_bot_active_now
+from app.bot.ux_labels import normalize_list_trigger
 
 
 TZ = ZoneInfo("Asia/Almaty")
@@ -47,6 +48,11 @@ def test_holiday_bot_on(monkeypatch):
     _reset_settings()
     # 1 января 2026, понедельник 11:00 — праздник
     assert is_bot_active_now(_dt(2026, 1, 1, 11)) is True
+
+
+def test_normalize_start_with_bot_username():
+    assert normalize_list_trigger("/start@KomekDamu_bot") == "/start"
+    assert normalize_list_trigger("/menu@KomekDamu_bot") == "/menu"
 
 
 def test_schedule_disabled_always_on(monkeypatch):

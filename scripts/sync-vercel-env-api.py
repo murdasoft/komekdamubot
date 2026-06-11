@@ -105,7 +105,7 @@ def main() -> None:
         "GROQ_VOICE_INTENT": "true",
         "GROQ_VOICE_INTENT_MODEL": "llama-3.1-8b-instant",
         "FAST_FAQ": "true",
-        "BOT_SCHEDULE_ENABLED": "true",
+        "BOT_SCHEDULE_ENABLED": "false",
         "BOT_TIMEZONE": "Asia/Almaty",
         "BOT_HUMAN_HOURS_START": "09:00",
         "BOT_HUMAN_HOURS_END": "18:00",
