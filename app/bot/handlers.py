@@ -29,7 +29,11 @@ from app.bot.stt_normalize import (
     normalize_stt_borrower_answer,
     stt_prompt_for_session,
 )
-from app.bot.voice_router import prepare_voice_input
+from app.bot.voice_router import (
+    prepare_voice_input,
+    resolve_menu_digit_from_text,
+    try_dispatch_voice_menu,
+)
 from app.bot.voice_stt import transcribe_voice_message
 from app.bot.unclear_input import (
     is_operator_or_phone_request,
@@ -44,6 +48,7 @@ from app.bot.chatbot_ux import (
     try_resolve_city_from_text,
 )
 from app.bot.faq_matcher import try_fast_response, is_pure_greeting
+from app.bot.faq_guide import build_faq_guide_reply
 from app.bot.loan_calc import calculate_loan_payment, format_calculator_result
 from app.bot.knowledge_base import (
     detect_intent, get_product_info, get_faq_answer,
@@ -79,8 +84,17 @@ from app.offices import get_contact_footer
 from app.bot.lang_detect import detect_message_lang
 from app.bot.kazakh_dict import KK_CHARS
 from app.supabase_client import save_session, load_session, log_message, create_lead
+from app.bot.business_hours import is_bot_active_now, get_human_hours_reply
+from app.bot.ux_labels import (
+    LIST_TRIGGER_EXACT,
+    LIST_TRIGGER_KEYWORDS,
+    TYPE_LIST_HINT_KK,
+    TYPE_LIST_HINT_RU,
+)
 
 logger = logging.getLogger(__name__)
+
+_HUMAN_HOURS_NOTICE_TTL = 4 * 3600
 
 # In-memory session storage (replace with DB for production)
 _sessions: Dict[str, Dict] = defaultdict(lambda: {
@@ -396,6 +410,20 @@ async def _tg_reply_credit_clarify(
     await _save_session_logged(chat_id, session)
 
 
+async def _block_if_human_hours(chat_id: str, session: Dict, send_fn) -> bool:
+    """True — стоп: будни 09–18, отвечает менеджер (бот молчит)."""
+    if is_bot_active_now():
+        return False
+    now = time.time()
+    if now - float(session.get("human_hours_notice_at") or 0) < _HUMAN_HOURS_NOTICE_TTL:
+        return True
+    session["human_hours_notice_at"] = now
+    lang = session.get("lang", DEFAULT_LANG)
+    await send_fn(get_human_hours_reply(lang))
+    await _save_session_logged(chat_id, session)
+    return True
+
+
 async def _save_session_logged(chat_id: str, session: Dict) -> bool:
     ok = await save_session(chat_id, session)
     if ok:
@@ -497,11 +525,19 @@ async def _process_tg_voice_message(
             return None
 
         raw = transcribed.strip()
-        if not session.get("lang_locked") and any(c in KK_CHARS for c in raw.lower()):
-            session["lang"] = "kk"
+        if not session.get("lang_locked"):
+            if detected_lang in ("ru", "kk"):
+                session["lang"] = detected_lang
+            elif any(c in KK_CHARS for c in raw.lower()):
+                session["lang"] = "kk"
+
+        heard_label = "Распознано" if lang_ui == "ru" else "Танылды"
+        await tg_client.send_message(chat_id, f"🎤 {heard_label}: _{raw}_")
+
         cmd_text = await _voice_text_for_handler(raw, session)
         logger.info("Voice TG: routed cmd=%s chat=%s", cmd_text[:60], chat_id)
         session["from_voice"] = True
+        session["last_voice_raw"] = raw
 
         # Language stays kk unless explicitly locked by user via 99
         # Do NOT auto-switch based on voice detection
@@ -643,31 +679,15 @@ _detect_language = _detect_lang  # alias for tests
 
 
 def _detect_lang_from_free_text(text: str) -> str | None:
-    """Всегда kk — казахский приоритетный. Не авто-определяем по тексту."""
-    low = text.lower().strip()
-    
-    # Только если явно просит русский — переключаем
-    ru_words = (
-        "русский", "русском", "русски", "рус", "орысша", "орыс",
-        "russian", "ru", "рус",
-    )
-    for w in ru_words:
-        if w in low:
-            return "ru"
-    
-    # Всё остальное — казахский по умолчанию
-    return "kk"
+    from app.bot.lang_policy import detect_lang_from_free_text
+
+    return detect_lang_from_free_text(text)
 
 
 def _update_session_lang(text: str, session: Dict) -> str:
-    """Язык ответа: kk по умолчанию; ru только после явного выбора через 99."""
-    _ = text
-    if session.get("lang_locked"):
-        return session.get("lang", DEFAULT_LANG)
-    session["lang"] = DEFAULT_LANG
-    session.pop("lang_streak_candidate", None)
-    session.pop("lang_streak", None)
-    return session["lang"]
+    from app.bot.lang_policy import resolve_reply_lang
+
+    return resolve_reply_lang(text, session)
 
 
 def _update_session_intent(text: str, session: Dict) -> None:
@@ -692,11 +712,15 @@ async def _get_bot_reply(
     session: Dict,
     ai: AIClient | None,
 ) -> str | None:
-    """Только FAQ и меню — без нейросети в текстовых ответах."""
-    _ = ai
+    """Гибрид: FAQ → AI-агент (база знаний) → гид к FAQ + меню 1–7."""
+    from app.bot.lang_policy import attach_hybrid_footer
+    from app.config import get_settings
+
+    settings = get_settings()
     text = normalize_stt_borrower_answer(text, session)
     lang = _update_session_lang(text, session)
     if session.get("city_confirmed") and is_vague_credit_request(text):
+        session.pop("guide_attempts", None)
         return get_credit_choice_menu(lang)
     found_city = detect_city(text)
     if found_city:
@@ -704,6 +728,8 @@ async def _get_bot_reply(
         session["city_confirmed"] = True
     core = strip_leading_greeting(text)
     platform = session.get("platform", "telegram")
+    hybrid = settings.hybrid_ai_enabled
+
     fast = try_fast_response(
         core,
         lang,
@@ -714,6 +740,7 @@ async def _get_bot_reply(
     )
     if fast:
         logger.info("Fast FAQ hit for: %s", core[:40])
+        session.pop("guide_attempts", None)
         _update_session_intent(core, session)
         if is_borrower_clarify_message(fast):
             session["awaiting_borrower_type"] = True
@@ -722,10 +749,25 @@ async def _get_bot_reply(
 
             if detect_business_entity(core):
                 session.pop("awaiting_borrower_type", None)
-        return fast
-    logger.info("No FAQ match, menu fallback: %s", core[:40])
-    platform = session.get("platform", "telegram")
-    return get_text_fallback_reply(lang, platform=platform)
+        return attach_hybrid_footer(fast, lang, session, enabled=hybrid)
+
+    if hybrid and ai and settings.is_ai_configured:
+        ai_resp = await _handle_ai_response_with_context(core, session, ai)
+        if ai_resp:
+            clean = (
+                ai_resp.replace("[NOTIFY_MANAGER]", "")
+                .replace("[DONE]", "")
+                .strip()
+            )
+            if clean:
+                logger.info("Hybrid AI reply for: %s", core[:40])
+                session.pop("guide_attempts", None)
+                _update_session_intent(core, session)
+                return attach_hybrid_footer(clean, lang, session, enabled=hybrid)
+
+    logger.info("No FAQ/AI match, FAQ guide: %s", core[:40])
+    guide = await build_faq_guide_reply(core, lang, session, ai, platform=platform)
+    return attach_hybrid_footer(guide, lang, session, enabled=hybrid)
 
 
 async def _handle_ai_response_with_context(
@@ -733,10 +775,10 @@ async def _handle_ai_response_with_context(
     session: Dict,
     ai: AIClient | None,
 ) -> str | None:
-    """Get AI response with conversation history for context understanding."""
+    """Гибридный AI: ответ по базе знаний, язык из lang_policy."""
     if not ai:
         return None
-    lang = session.get("lang", DEFAULT_LANG)
+    lang = _update_session_lang(text, session)
     found_city = detect_city(text)
     if found_city:
         session["city"] = found_city
@@ -849,9 +891,9 @@ async def _process_flow_step(
     if any(w in text.lower() for w in exit_words):
         _reset_session(chat_id, session.get("platform", "telegram"))
         exit_msg = (
-            "Хорошо, анкета отменена. Напишите ваш вопрос или «меню» для списка услуг."
+            "Хорошо, анкета отменена. Напишите вопрос или *список* — покажу разделы."
             if lang == "ru" else
-            "Жарайды, анкета тоқтатылды. Сұрағыңызды жазыңыз немесе қызметтер тізімі үшін «мәзір» деп жазыңыз."
+            "Жарайды, анкета тоқтатылды. Сұрағыңызды жазыңыз немесе *тізім* деп жазыңыз — бөлімдерді көрсетемін."
         )
         await send_message_func(exit_msg)
         return False
@@ -1125,8 +1167,12 @@ async def _handle_telegram_update_inner(
                 await tg_client.send_message(chat_id, "Формат: /reply CHAT_ID текст")
         return
 
-    # Handle /start — шаг 1: язык (кнопки в одном сообщении)
-    if text and text.strip() in ["/start", "/menu", "меню", "главное меню", "басты мәзір"]:
+    session = await _get_session(chat_id)
+    if await _block_if_human_hours(chat_id, session, tg_client.send_message):
+        return
+
+    # /start и «список» — шаг 1: язык
+    if text and text.strip() in LIST_TRIGGER_EXACT:
         if not chat_id or chat_id == "None":
             logger.error(f"Invalid chat_id for /start: {chat_id}")
             return
@@ -1137,8 +1183,6 @@ async def _handle_telegram_update_inner(
         await save_session(chat_id, session)
         await render_screen(tg_client, chat_id, session, "lang")
         return
-
-    session = await _get_session(chat_id)
 
     # Inline-кнопки: одно сообщение, редактирование на месте
     if callback_id and text and text.strip().startswith(("nav:", "menu:", "mort:")):
@@ -1232,7 +1276,7 @@ async def _handle_telegram_update_inner(
     _ensure_session_defaults(session)
 
     # Handle /start or menu return
-    if text_stripped in ["/start", "/menu", "меню", "главное меню", "басты мәзір"]:
+    if text_stripped in LIST_TRIGGER_EXACT:
         return
 
     # Голос/текст «хочу кредит» — сразу меню (до приветствий и small talk)
@@ -1240,7 +1284,29 @@ async def _handle_telegram_update_inner(
         await _tg_reply_credit_clarify(tg_client, chat_id, session)
         return
 
-    # Selecting language: цифра 1/2 или слова «Қазақша» / «русский»; город «Алматы» — сразу в меню
+    # Явное «русский» / «қазақша» вне мастера — переключить без повторных вопросов
+    from app.bot.lang_policy import (
+        apply_lang_switch,
+        is_explicit_lang_message,
+        lang_switch_confirmation,
+    )
+
+    if apply_lang_switch(text_stripped, session) and is_explicit_lang_message(text_stripped):
+        lang = session["lang"]
+        await tg_client.send_message(chat_id, lang_switch_confirmation(lang))
+        if session.get("city_confirmed"):
+            await render_screen(
+                tg_client, chat_id, session, "main", message_id=session.get("menu_message_id")
+            )
+        elif session.get("state") != "selecting_city":
+            session["state"] = "selecting_city"
+            await render_screen(
+                tg_client, chat_id, session, "city", message_id=session.get("menu_message_id")
+            )
+        await _save_session_logged(chat_id, session)
+        return
+
+    # Выбор языка: 1/2, слова, или сразу русский/казахский текст → город
     if session.get("state") == "selecting_lang":
         lang_digit = parse_lang_digit(text_stripped)
         if lang_digit:
@@ -1251,22 +1317,25 @@ async def _handle_telegram_update_inner(
             await render_screen(tg_client, chat_id, session, "city", message_id=session.get("menu_message_id"))
             await _save_session_logged(chat_id, session)
             return
-        found_city = try_resolve_city_from_text(text_stripped)
-        if found_city:
+        if not is_explicit_lang_message(text_stripped):
             session["lang"] = _detect_lang_from_free_text(text_stripped) or DEFAULT_LANG
             session["lang_locked"] = True
-            session["city"] = found_city
-            session["city_confirmed"] = True
-            session["state"] = "idle"
             session.pop("lang_retry", None)
-            await render_screen(tg_client, chat_id, session, "main", message_id=session.get("menu_message_id"))
+            found_city = try_resolve_city_from_text(text_stripped)
+            if found_city:
+                session["city"] = found_city
+                session["city_confirmed"] = True
+                session["state"] = "idle"
+                await render_screen(tg_client, chat_id, session, "main", message_id=session.get("menu_message_id"))
+                await _save_session_logged(chat_id, session)
+                return
+            if is_vague_credit_request(text_stripped):
+                session["state"] = "idle"
+                await _tg_reply_credit_clarify(tg_client, chat_id, session)
+                return
+            session["state"] = "selecting_city"
+            await render_screen(tg_client, chat_id, session, "city", message_id=session.get("menu_message_id"))
             await _save_session_logged(chat_id, session)
-            return
-        if is_vague_credit_request(text_stripped):
-            session["lang"] = _detect_lang_from_free_text(text_stripped) or lang
-            session["lang_locked"] = True
-            session["state"] = "idle"
-            await _tg_reply_credit_clarify(tg_client, chat_id, session)
             return
         attempt = session.get("lang_retry", 0)
         session["lang_retry"] = attempt + 1
@@ -1324,8 +1393,7 @@ async def _handle_telegram_update_inner(
     platform = session.get("platform", "tg")
     
     # Check if user asked for menu (any platform)
-    menu_keywords = ["меню", "menu", "мәзір", "список", "варианты", "нұсқалар", "/menu"]
-    if any(w in text_stripped.lower() for w in menu_keywords) and session.get("state") == "idle":
+    if any(w in text_stripped.lower() for w in LIST_TRIGGER_KEYWORDS) and session.get("state") == "idle":
         if session.get("city_confirmed"):
             await render_screen(
                 tg_client, chat_id, session, "main", message_id=session.get("menu_message_id")
@@ -1422,6 +1490,36 @@ async def _handle_telegram_update_inner(
             )
             await _save_session_logged(chat_id, session)
             return
+
+        # Голос/текст с продуктом → меню или карточка продукта (1–7)
+        menu_digit = resolve_menu_digit_from_text(text_stripped, session)
+        if menu_digit and menu_digit not in ("0", "98", "99") and session.get("city_confirmed"):
+            if menu_digit == "7":
+                session["state"] = "handoff"
+                session["handoff_until"] = time.time() + get_settings().handoff_timeout_hours * 3600
+                await tg_client.send_message(
+                    chat_id,
+                    content.get_operator_message_with_phone(lang, session.get("city")),
+                )
+                await _notify_manager(
+                    f"🚨 *Голос/текст → менеджер*\nChat: `{chat_id}`\nСообщение: {text_stripped}",
+                    chat_id,
+                    "telegram",
+                    session=session,
+                )
+                await _send_voice_text_nudge(session, chat_id, lang, tg_client.send_message)
+                await _save_session_logged(chat_id, session)
+                return
+            if await _try_handle_menu_digit(
+                menu_digit,
+                session,
+                lambda m: tg_client.send_message(chat_id, m),
+                platform="telegram",
+            ):
+                await _send_voice_text_nudge(session, chat_id, lang, tg_client.send_message)
+                await _save_session_logged(chat_id, session)
+                return
+
         ai_response = await _get_bot_reply(text_stripped, session, ai)
         if ai_response:
             # Extract control tags
@@ -1537,7 +1635,7 @@ async def handle_whatsapp_update(
                         "Нужна помощь или консультация?\n\n"
                         "☎️ *8 707 339 10 39*\n"
                         "📍 Алматы, Астана, Шымкент, Ақтау\n\n"
-                        "📝 Жазыңыз: *меню* / Напишите: *меню*"
+                        f"📝 {TYPE_LIST_HINT_KK}\n{TYPE_LIST_HINT_RU}"
                     )
                 )
             except Exception:
@@ -1580,6 +1678,9 @@ async def _handle_whatsapp_update_inner(
 
     if sender_name:
         session["contact_name"] = sender_name
+
+    if await _block_if_human_hours(chat_id, session, wa_client.send_message):
+        return
 
     lang = session.get("lang", DEFAULT_LANG)
 
@@ -1679,78 +1780,58 @@ async def _handle_whatsapp_update_inner(
             )
             logger.warning("WA VOICE STEP 4: STT raw text=%s lang=%s", transcribed[:80] if transcribed else None, detected_lang)
             if transcribed and transcribed.strip():
-                if not session.get("lang_locked") and any(
-                    c in KK_CHARS for c in transcribed.lower()
-                ):
-                    session["lang"] = "kk"
                 raw_text = transcribed.strip()
-                # Подробное логирование voice pipeline
-                from app.bot.voice_router import route_voice_text
-                route = route_voice_text(raw_text, session)
-                logger.warning("WA VOICE ROUTE raw=%s digit=%s phrase=%s source=%s", raw_text[:40], route.text if route.source == 'digit' else None, route.text if route.source == 'phrase' else None, route.source)
-                text = await _voice_text_for_handler(raw_text, session)
+                if not session.get("lang_locked"):
+                    if detected_lang in ("ru", "kk"):
+                        session["lang"] = detected_lang
+                    elif any(c in KK_CHARS for c in raw_text.lower()):
+                        session["lang"] = "kk"
+                lang_ui = session.get("lang", DEFAULT_LANG)
+
+                heard = "Танылды" if lang_ui == "kk" else "Распознано"
+                await send_wa_with_hint(f"🎤 {heard}: _{raw_text}_", lang_ui)
+
+                route = await prepare_voice_input(raw_text, session)
+                logger.warning(
+                    "WA VOICE ROUTE raw=%s cmd=%s source=%s",
+                    raw_text[:40],
+                    route.text[:40],
+                    route.source,
+                )
+                text = route.text
                 session["from_voice"] = True
+                session["last_voice_raw"] = raw_text
                 await save_session(chat_id, session)
-                logger.warning("WA VOICE SUCCESS text=%s source=%s", text[:60], route.source)
-                # Обрабатываем результат напрямую, не полагаясь на проваливание
+
                 voice_cmd = (text or "").strip()
-                logger.warning("WA VOICE cmd='%s' len=%s isdigit=%s", voice_cmd, len(voice_cmd), voice_cmd.isdigit() if voice_cmd else False)
                 if voice_cmd:
-                    # Пробуем напрямую как цифру
-                    mapped = content.WA_DIGIT_MAP.get(voice_cmd)
-                    logger.warning("WA VOICE direct mapped=%s for cmd=%s", mapped, voice_cmd)
-                    if mapped and mapped != "operator":
-                        menu_body = menu_choice_body(mapped, lang_ui)
-                        logger.warning("WA VOICE body=%s... for mapped=%s", (menu_body or "")[:60], mapped)
-                        if menu_body:
-                            await send_wa_with_hint(menu_body, lang_ui)
-                            await save_session(chat_id, session)
-                            logger.warning("WA VOICE DIRECT SENT mapped=%s", mapped)
-                            return
-                        else:
-                            logger.error("WA VOICE menu_choice_body returned EMPTY for mapped=%s", mapped)
-                    # Пробуем фразовый маппинг
-                    from app.bot.voice_router import map_menu_phrase
-                    pd = map_menu_phrase(voice_cmd)
-                    logger.warning("WA VOICE phrase mapped=%s for cmd=%s", pd, voice_cmd)
-                    if pd and pd not in ("0", "98", "99"):
-                        mapped2 = content.WA_DIGIT_MAP.get(pd)
-                        if mapped2 and mapped2 != "operator":
-                            menu_body2 = menu_choice_body(mapped2, lang_ui)
-                            if menu_body2:
-                                await send_wa_with_hint(menu_body2, lang_ui)
-                                await save_session(chat_id, session)
-                                logger.warning("WA VOICE PHRASE DIRECT SENT mapped=%s", mapped2)
-                                return
-                    # Последняя попытка: извлечь цифру из словесного текста
-                    from app.bot.voice_router import extract_spoken_digit
-                    spoken = extract_spoken_digit(voice_cmd)
-                    logger.warning("WA VOICE spoken digit=%s for cmd=%s", spoken, voice_cmd)
-                    if spoken and spoken not in ("0", "98", "99"):
-                        mapped3 = content.WA_DIGIT_MAP.get(spoken)
-                        if mapped3 and mapped3 != "operator":
-                            menu_body3 = menu_choice_body(mapped3, lang_ui)
-                            if menu_body3:
-                                await send_wa_with_hint(menu_body3, lang_ui)
-                                await save_session(chat_id, session)
-                                logger.warning("WA VOICE SPOKEN DIRECT SENT mapped=%s", mapped3)
-                                return
-                    # Последняя попытка: обработать как FAQ если текст длинный
-                    if voice_cmd and len(voice_cmd) > 10:
-                        from app.bot.faq_matcher import try_fast_response
-                        from app.bot.text_utils import strip_leading_greeting
-                        core = strip_leading_greeting(voice_cmd)
-                        fast = try_fast_response(
-                            core, lang_ui, session.get("city"), "whatsapp",
-                            city_confirmed=session.get("city_confirmed", False),
-                            session=session,
+                    if is_vague_credit_request(voice_cmd) and session.get("city_confirmed"):
+                        await send_wa_with_hint(get_credit_choice_menu(lang_ui), lang_ui)
+                        await _send_voice_text_nudge(
+                            session, chat_id, lang_ui, lambda m: send_wa_with_hint(m, lang_ui)
                         )
-                        if fast:
-                            await send_wa_with_hint(fast, lang_ui)
-                            await save_session(chat_id, session)
-                            logger.warning("WA VOICE FAQ sent for cmd=%s", voice_cmd[:50])
-                            return
-                    logger.warning("WA VOICE no menu match, falling through cmd=%s", voice_cmd)
+                        await save_session(chat_id, session)
+                        return
+
+                    handled = await try_dispatch_voice_menu(
+                        voice_cmd,
+                        session,
+                        lang_ui,
+                        lambda msg: send_wa_with_hint(msg, lang_ui),
+                        platform="whatsapp",
+                        ai=ai,
+                    )
+                    if handled:
+                        await _send_voice_text_nudge(
+                            session, chat_id, lang_ui, lambda m: send_wa_with_hint(m, lang_ui)
+                        )
+                        await save_session(chat_id, session)
+                        return
+
+                    if voice_cmd in ("0", "98", "99") or resolve_menu_digit_from_text(voice_cmd, session) in ("0", "98", "99"):
+                        pass  # fall through to text handler for nav
+                    else:
+                        logger.warning("WA VOICE fallthrough cmd=%s", voice_cmd)
             else:
                 logger.warning("WA VOICE STT EMPTY — showing 'Не расслышал'")
                 await send_wa_with_hint(
@@ -1808,7 +1889,7 @@ async def _handle_whatsapp_update_inner(
         return
 
     # Handle /start — шаг 1: язык
-    if text_stripped in ["/start", "start", "меню", "мәзір", "menu"]:
+    if text_stripped in LIST_TRIGGER_EXACT or text_stripped in ("start",):
         _reset_session(chat_id, "whatsapp")
         session = await _get_session(chat_id)
         session["state"] = "selecting_lang"
@@ -1835,6 +1916,26 @@ async def _handle_whatsapp_update_inner(
         await send_wa_with_hint(get_city_step_text(session.get("lang", lang)), session.get("lang", lang))
         return
 
+    from app.bot.lang_policy import (
+        apply_lang_switch as wa_apply_lang_switch,
+        is_explicit_lang_message as wa_is_explicit_lang,
+        lang_switch_confirmation as wa_lang_confirm,
+    )
+
+    if wa_apply_lang_switch(text_stripped, session) and wa_is_explicit_lang(text_stripped):
+        reply_lang = session["lang"]
+        await send_wa_with_hint(wa_lang_confirm(reply_lang), reply_lang)
+        if session.get("city_confirmed") and session.get("city"):
+            await send_wa_with_hint(
+                get_welcome_with_menu(reply_lang, session["city"], "whatsapp"),
+                reply_lang,
+            )
+        elif session.get("state") != "selecting_city":
+            session["state"] = "selecting_city"
+            await send_wa_with_hint(get_city_step_text(reply_lang), reply_lang)
+        await save_session(chat_id, session)
+        return
+
     if session.get("state") == "selecting_lang":
         lang_digit = parse_lang_digit(text_stripped)
         if lang_digit:
@@ -1842,6 +1943,36 @@ async def _handle_whatsapp_update_inner(
             session["lang_locked"] = True
             session["state"] = "selecting_city"
             session.pop("lang_retry", None)
+            await save_session(chat_id, session)
+            await send_wa_with_hint(get_city_step_text(session["lang"]), session["lang"])
+            return
+        if not wa_is_explicit_lang(text_stripped):
+            session["lang"] = _detect_lang_from_free_text(text_stripped) or DEFAULT_LANG
+            session["lang_locked"] = True
+            session.pop("lang_retry", None)
+            found_city = try_resolve_city_from_text(text_stripped)
+            if found_city:
+                session["city"] = found_city
+                session["city_confirmed"] = True
+                session["state"] = "idle"
+                await save_session(chat_id, session)
+                await send_wa_with_hint(
+                    get_welcome_with_menu(session["lang"], found_city, "whatsapp"),
+                    session["lang"],
+                )
+                return
+            if is_vague_credit_request(text_stripped):
+                session["state"] = "idle"
+                await send_wa_with_hint(get_credit_choice_menu(session["lang"]), session["lang"])
+                await _send_voice_text_nudge(
+                    session,
+                    chat_id,
+                    session["lang"],
+                    lambda m: send_wa_with_hint(m, session["lang"]),
+                )
+                await save_session(chat_id, session)
+                return
+            session["state"] = "selecting_city"
             await save_session(chat_id, session)
             await send_wa_with_hint(get_city_step_text(session["lang"]), session["lang"])
             return

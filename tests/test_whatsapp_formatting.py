@@ -51,7 +51,7 @@ def test_adapt_strips_backticks():
 
 def test_wa_back_hint_bilingual():
     out = add_wa_back_hint("Сәлем", "kk")
-    assert "Бас мәзірге қайту" in out
-    assert "Назад в главное меню" in out
+    assert "Бөлімдерге қайту" in out
+    assert "Назад к разделам" in out
     assert "Тілді ауыстыру" in out
     assert "Сменить язык" in out

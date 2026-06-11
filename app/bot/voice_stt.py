@@ -1,9 +1,11 @@
 """
 Голос → текст: Groq Whisper (основной), faster-whisper (VPS), Together (legacy).
+Пробуем ru + kk и выбираем лучший транскрипт по score.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Optional
 
@@ -15,17 +17,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# TODO: add more Kazakh financial terms from chat analysis:
-# "скорбал", "нагрузка", "пенсионка", "зейнет", "жүктеме", "кешігу", "просрочк",
-# "онлайн", "гарантия", "процент", "ставка", "миллион", "несие"
+# Финансовый словарь для Whisper prompt (ru + kk)
 DOMAIN_STT_PROMPT = (
     "KOMEK DAMU. Кредит, ипотека, DAMU 12,6, несие, рефинансирование. "
-    "ИП, ЖК, ТОО, жеке тұлға, физлицо. "
-    "Алматы, Астана, Шымкент, Актау. "
-    "Қазақша, орысша, процент, млн. "
+    "ИП, ЖК, ТОО, жеке тұлға, физлицо, кәсіпкер, индивидуальный предприниматель. "
+    "Алматы, Астана, Шымкент, Актау, Атырау, Қарағанды. "
+    "Қазақша, орысша, процент, пайыз, ставка, млн, миллион, тенге, сома. "
+    "пенсия, зейнет, нагрузка, жүктеме, просрочка, кешігу, скоринг. "
+    "онлайн, гарантия, менеджер, оператор, мәзір, меню. "
     "Цифры: бір/один=1, екі/два=2, үш/три=3, төрт/четыре=4, "
     "бес/пять=5, алты/шесть=6, жеті/семь=7."
 )
+
+_MIN_GOOD_SCORE = 32
 
 
 def is_voice_stt_available(settings: "Settings") -> bool:
@@ -42,14 +46,42 @@ def _score_transcript(text: str, lang_hint: str | None) -> int:
     if len(t) < 2:
         return 0
     score = min(len(t) * 3, 120)
-    kk = sum(1 for c in t.lower() if c in "әіңғүұқөһ")
-    if lang_hint == "kk" and kk > 0:
-        score += 15
-    if lang_hint == "ru" and kk == 0 and any(c in t.lower() for c in "аяуюы"):
-        score += 10
-    if any(w in t.lower() for w in ("кредит", "несие", "ипотек", "даму", "ип", "тоо", "жк")):
+    low = t.lower()
+    kk_chars = sum(1 for c in low if c in "әіңғүұқөһ")
+    if lang_hint == "kk" and kk_chars > 0:
+        score += 18
+    if lang_hint == "ru" and kk_chars == 0 and any(c in low for c in "аяуюы"):
         score += 12
+    fin_words = (
+        "кредит", "несие", "ипотек", "даму", "ип", "тоо", "жк", "жеке",
+        "рефинанс", "млн", "процент", "ставк", "пайыз", "кәсіп", "бизнес",
+        "пәтер", "қайта", "менеджер", "оператор", "салам", "сәлем",
+    )
+    if any(w in low for w in fin_words):
+        score += 15
+    # Штраф за явный мусор STT
+    if len(t) <= 3 and not t.isdigit():
+        score -= 10
     return score
+
+
+def _pick_best_candidate(
+    candidates: list[tuple[str, str | None, int]],
+    lang_hint: str | None,
+) -> tuple[str | None, str]:
+    if not candidates:
+        return None, lang_hint or "kk"
+    best = max(candidates, key=lambda x: x[2])
+    text, det, score = best
+    detected = det or detect_language_simple(text)
+    logger.info(
+        "STT best of %s candidates: score=%s lang=%s text=%s",
+        len(candidates),
+        score,
+        detected,
+        text[:60],
+    )
+    return text.strip(), detected
 
 
 async def _try_together(
@@ -104,24 +136,6 @@ async def _try_local_url(
     return None, None
 
 
-async def _try_ai_client(
-    ai,
-    audio_bytes: bytes,
-    filename: str,
-    lang: str | None,
-    prompt: str,
-) -> tuple[str | None, str | None]:
-    if not ai or not hasattr(ai, "transcribe"):
-        return None, None
-    text, err = await ai.transcribe(
-        audio_bytes, filename=filename, language=lang, prompt=prompt
-    )
-    if text:
-        detected = lang or ai.detect_language_simple(text)
-        return text, detected
-    return None, None
-
-
 async def _try_groq(
     settings: "Settings",
     audio_bytes: bytes,
@@ -130,7 +144,6 @@ async def _try_groq(
     prompt: str,
 ) -> tuple[str | None, str | None]:
     if not settings.is_groq_configured:
-        logger.warning("Groq not configured")
         return None, None
     from app.groq_client import GroqClient
 
@@ -143,14 +156,54 @@ async def _try_groq(
     text, err = await groq.transcribe(
         audio_bytes, filename=filename, language=lang, prompt=prompt
     )
-    logger.info("Groq STT API result: text=%s err=%s", text[:100] if text else None, err)
     if text:
         return text, lang or groq.detect_language_simple(text)
     if err:
         logger.warning("Groq STT FAILED lang=%s: %s", lang, err)
-    else:
-        logger.warning("Groq STT returned EMPTY text (no error)")
     return None, None
+
+
+async def _groq_candidates(
+    settings: "Settings",
+    audio_bytes: bytes,
+    filename: str,
+    prompt: str,
+    lang_hint: str | None,
+) -> list[tuple[str, str | None, int]]:
+    """До 3 попыток Groq: auto → hint → ru+kk параллельно при слабом результате."""
+    candidates: list[tuple[str, str | None, int]] = []
+    tried_langs: set[str | None] = set()
+
+    async def _add(lang: str | None) -> None:
+        if lang in tried_langs:
+            return
+        tried_langs.add(lang)
+        try:
+            text, det = await _try_groq(settings, audio_bytes, filename, lang, prompt)
+            if text and text.strip():
+                score = _score_transcript(text, lang or lang_hint)
+                candidates.append((text.strip(), det, score))
+                logger.info("STT Groq lang=%s score=%s text=%s", lang, score, text[:50])
+        except Exception:
+            logger.exception("STT Groq lang=%s exception", lang)
+
+    await _add(None)
+    best_score = max((c[2] for c in candidates), default=0)
+    if best_score >= _MIN_GOOD_SCORE:
+        return candidates
+
+    if lang_hint in ("ru", "kk"):
+        await _add(lang_hint)
+        best_score = max((c[2] for c in candidates), default=0)
+        if best_score >= _MIN_GOOD_SCORE:
+            return candidates
+
+    # Параллельно ru + kk — выбираем лучший по score
+    other_langs = [l for l in ("ru", "kk") if l not in tried_langs]
+    if other_langs:
+        await asyncio.gather(*[_add(l) for l in other_langs])
+
+    return candidates
 
 
 async def transcribe_voice_message(
@@ -163,9 +216,7 @@ async def transcribe_voice_message(
     session: dict | None = None,
 ) -> tuple[str | None, str]:
     """
-    STT fallback chain: Groq auto → Groq hint → Local Whisper → Together.
-    Каждая попытка обёрнута в try/except — при Exception переходим к следующей.
-    Макс 4 HTTP-запроса, влезаем в Vercel 60-сек лимит.
+    STT: Groq (auto + ru + kk с выбором лучшего) → Local Whisper → Together.
     """
     if not audio_bytes:
         return None, lang_hint or "kk"
@@ -174,58 +225,44 @@ async def transcribe_voice_message(
     extra = stt_prompt_for_session(session)
     prompt = f"{base_prompt} {extra}" if extra else base_prompt
 
-    # Попытка 1: Groq с автоопределением языка (None = auto)
     if settings.is_groq_configured:
         try:
-            logger.info("STT Groq auto start: bytes=%s prompt=%s", len(audio_bytes), prompt[:60])
-            text, det = await _try_groq(settings, audio_bytes, filename, None, prompt)
-            logger.info("STT Groq auto result: text=%s det=%s", text[:80] if text else None, det)
-            if text and text.strip():
-                detected = det or detect_language_simple(text)
-                logger.info("Voice STT Groq auto SUCCESS lang=%s text=%s", detected, text[:50])
-                return text.strip(), detected
-            logger.warning("STT Groq auto: empty or no text")
+            candidates = await _groq_candidates(
+                settings, audio_bytes, filename, prompt, lang_hint
+            )
+            text, detected = _pick_best_candidate(candidates, lang_hint)
+            if text:
+                logger.info("Voice STT Groq SUCCESS lang=%s text=%s", detected, text[:50])
+                return text, detected
+            logger.warning("STT Groq: all attempts weak or empty")
         except Exception:
-            logger.exception("STT Groq auto FAILED with exception, trying next provider")
+            logger.exception("STT Groq pipeline FAILED, trying next provider")
 
-    # Попытка 2: Groq с подсказкой языка
-    if settings.is_groq_configured and lang_hint:
-        try:
-            logger.info("STT Groq hint start: lang_hint=%s", lang_hint)
-            text, det = await _try_groq(settings, audio_bytes, filename, lang_hint, prompt)
-            logger.info("STT Groq hint result: text=%s det=%s", text[:80] if text else None, det)
-            if text and text.strip():
-                detected = det or lang_hint
-                logger.info("Voice STT Groq hint SUCCESS lang=%s text=%s", detected, text[:50])
-                return text.strip(), detected
-            logger.warning("STT Groq hint: empty or no text")
-        except Exception:
-            logger.exception("STT Groq hint FAILED with exception, trying next provider")
-
-    # Попытка 3: Local Whisper URL (VPS fallback)
     if settings.local_whisper_url:
-        try:
-            logger.info("STT Local Whisper start: url=%s", settings.local_whisper_url)
-            text, det = await _try_local_url(settings, audio_bytes, filename, lang_hint, prompt)
-            if text and text.strip():
-                detected = det or lang_hint or detect_language_simple(text)
-                logger.info("Voice STT Local Whisper SUCCESS lang=%s text=%s", detected, text[:50])
-                return text.strip(), detected
-            logger.warning("STT Local Whisper: empty or no text")
-        except Exception:
-            logger.exception("STT Local Whisper FAILED with exception, trying next provider")
+        for lang in (lang_hint, "kk", "ru", None):
+            try:
+                text, det = await _try_local_url(
+                    settings, audio_bytes, filename, lang, prompt
+                )
+                if text and text.strip():
+                    detected = det or lang_hint or detect_language_simple(text)
+                    logger.info("Voice STT Local Whisper SUCCESS lang=%s", detected)
+                    return text.strip(), detected
+            except Exception:
+                logger.exception("STT Local Whisper lang=%s FAILED", lang)
 
-    # Попытка 4: Together fallback
     if settings.is_together_configured:
-        try:
-            text, det = await _try_together(settings, audio_bytes, filename, lang_hint, prompt)
-            if text and text.strip():
-                detected = det or lang_hint or detect_language_simple(text)
-                logger.info("Voice STT Together SUCCESS lang=%s text=%s", detected, text[:50])
-                return text.strip(), detected
-            logger.warning("STT Together: empty or no text")
-        except Exception:
-            logger.exception("STT Together FAILED with exception, all providers exhausted")
+        for lang in (lang_hint, "kk", "ru", None):
+            try:
+                text, det = await _try_together(
+                    settings, audio_bytes, filename, lang, prompt
+                )
+                if text and text.strip():
+                    detected = det or lang_hint or detect_language_simple(text)
+                    logger.info("Voice STT Together SUCCESS lang=%s", detected)
+                    return text.strip(), detected
+            except Exception:
+                logger.exception("STT Together lang=%s FAILED", lang)
 
     logger.warning("Voice STT: all providers failed")
     return None, lang_hint or "kk"

@@ -8,6 +8,7 @@ import logging
 from typing import Any
 
 from app.bot.formatting import CITY_OFFICES, format_office_city
+from app.bot.ux_labels import SCREEN_MAIN_HEAD_KK, SCREEN_MAIN_HEAD_RU
 from app.bot.menu import (
     format_damu_menu_answer,
     get_main_menu_text,
@@ -71,10 +72,7 @@ def screen_city_keyboard(lang: str) -> dict:
 
 def screen_main_text(lang: str, city: str) -> str:
     office = format_office_city(city, lang, "telegram")
-    if lang == "kk":
-        head = "📋 *Негізгі мәзір* — бөлімді таңдаңыз:"
-    else:
-        head = "📋 *Главное меню* — выберите раздел:"
+    head = SCREEN_MAIN_HEAD_KK if lang == "kk" else SCREEN_MAIN_HEAD_RU
     return f"{head}\n\n{office}"
 
 
@@ -371,5 +369,5 @@ def _set_menu_intent_session(choice_key: str, session: dict) -> None:
 
 def use_buttons_hint(lang: str) -> str:
     if lang == "kk":
-        return "Төмендегі *түймені* басыңыз 👇 /start — бастапқы мәзір"
+        return "Төмендегі *түймені* басыңыз 👇 /start — бөлімдер тізімі"
     return "Нажмите *кнопку* ниже 👇 /start — в начало"

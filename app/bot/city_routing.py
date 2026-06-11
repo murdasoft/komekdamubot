@@ -81,7 +81,7 @@ def get_universal_fallback_reply(lang: str, *, platform: str = "whatsapp") -> st
             "Бізге қоңырау шалыңыз немесе офиске келіңіз:\n\n"
             "☎️ *Тездету: 8 707 339 10 39*\n\n"
             f"{offices}\n\n"
-            "*7* — менеджер | *0* — мәзір"
+            "*7* — менеджер | *0* — бөлімдер"
         )
     return (
         "📞 *KOMEK DAMU*\n\n"
@@ -89,5 +89,5 @@ def get_universal_fallback_reply(lang: str, *, platform: str = "whatsapp") -> st
         "Позвоните нам или приезжайте в офис:\n\n"
         "☎️ *Срочно: 8 707 339 10 39*\n\n"
         f"{offices}\n\n"
-        "*7* — менеджер | *0* — меню"
+        "*7* — менеджер | *0* — разделы"
     )

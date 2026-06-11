@@ -14,9 +14,9 @@ def test_lang_step_has_digits():
     assert "1 —" in t and "2 —" in t
 
 
-def test_city_step_five_cities():
+def test_city_step_lists_cities():
     t = get_city_step_text("ru")
-    assert "1 —" in t and "5 —" in t or "5 — Актау" in t
+    assert "1 —" in t and "4 —" in t and "Актау" in t
 
 
 def test_nav_hint_has_98():
@@ -30,7 +30,7 @@ def test_nav_hint_has_98():
     assert "0" in city_hint
     assert "98" in city_hint
     assert "7" in city_hint
-    assert "Главное меню" in city_hint or "Негізгі" in city_hint
+    assert "раздел" in city_hint.lower() or "бөлім" in city_hint.lower()
     assert "98" in wa_nav_hint_for_step("main")
 
 
@@ -38,7 +38,7 @@ def test_city_invalid_reply_is_universal():
     from app.bot.wizard import get_city_invalid_reply, get_city_step_help
 
     ru = get_city_invalid_reply("ru")
-    assert "понял" in ru.lower() or "түсінбед" in ru.lower()
+    assert "помощь" in ru.lower() or "консультация" in ru.lower()
     assert "📍" in ru or "Муратбаева" in ru
     assert "7" in ru
     help_ru = get_city_step_help("ru")

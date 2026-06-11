@@ -9,7 +9,7 @@ if [[ -z "${VERCEL_TOKEN:-}" ]]; then
 fi
 
 export VERCEL_ORG_ID="${VERCEL_ORG_ID:-team_XvdeejTJMqlLFFaRhoG1E13Y}"
-export VERCEL_PROJECT_ID="${VERCEL_PROJECT_ID:-prj_m1mEnj8dwl0kk0g9spQEoXNgimkJ}"
+export VERCEL_PROJECT_ID="${VERCEL_PROJECT_ID:-prj_be5ygUibloHeEdRtyWuBHEOWPagY}"
 
 echo "==> Deploying to Vercel production..."
 DEPLOY_URL=$(vercel deploy --prod --yes --token "$VERCEL_TOKEN" 2>&1 | tee /dev/stderr | grep -Eo 'https://[a-zA-Z0-9.-]+\.vercel\.app' | tail -1)

@@ -79,6 +79,45 @@ def is_frustration_or_unclear(text: str) -> bool:
     return any(w in low for w in _FRUSTRATION_WORDS)
 
 
+_FINANCE_HINTS = (
+    "кредит", "несие", "ипотек", "даму", "рефинанс", "займ", "тенге", "тг",
+    "млн", "миллион", "процент", "ставк", "пайыз", "лимит", "залог", "кепіл",
+    "ип", "жк", "тоо", "төо", "жеке", "физлиц", "бизнес", "кәсіп", "пәтер",
+    "қарыз", "карыз", "ақша", "акша", "офис", "менеджер", "оператор",
+)
+
+_OFF_TOPIC_HINTS = (
+    "футбол", "football", "погод", "ауа рай", "рецепт", "кино", "фильм",
+    "сериал", "любов", "махаббат", "анекдот", "әзіл", "шутк", "политик",
+    "президент", "война", "соғыс", "игра", "ойын", "minecraft", "тикток",
+    "instagram", "песн", "ән", "music", "музык", "ресторан", "мейрамхана",
+    "такси", "uber", "пицц", "пиво", "водк",
+)
+
+
+def is_off_topic_message(text: str) -> bool:
+    """Сообщение явно не про кредиты/ипотеку."""
+    low = text.lower().strip()
+    if not low or len(low) <= 2:
+        return False
+    if any(h in low for h in _FINANCE_HINTS):
+        return False
+    if any(h in low for h in _OFF_TOPIC_HINTS):
+        return True
+    greet = (
+        "салам", "сәлем", "привет", "здравств", "рахмет", "спасибо",
+        "калай", "қалай", "саламатсыз",
+    )
+    if any(g in low for g in greet):
+        return False
+    words = low.split()
+    if len(words) >= 5 and not any(
+        h in low for h in ("керек", "көмек", "помог", "help", "несие", "кредит")
+    ):
+        return True
+    return False
+
+
 def should_use_universal_fallback(text: str) -> bool:
     """Свободный текст не похож на выбор шага мастера."""
     t = text.strip()

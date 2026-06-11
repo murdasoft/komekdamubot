@@ -75,9 +75,15 @@ class TestSummaryBuilder:
 class TestSessionManagement:
     """Test session management."""
 
-    def test_update_session_lang_stays_kazakh_on_russian_text(self):
+    def test_update_session_lang_russian_text_switches_ru(self):
         session = {"lang": DEFAULT_LANG, "lang_locked": False}
-        assert _update_session_lang("1 000 000 тенге кредит на тоо", session) == "kk"
+        assert _update_session_lang("Здравствуйте, нужен кредит на ТОО", session) == "ru"
+        assert session["lang"] == "ru"
+        assert session["lang_locked"] is True
+
+    def test_update_session_lang_kazakh_credit_stays_kk(self):
+        session = {"lang": DEFAULT_LANG, "lang_locked": False}
+        assert _update_session_lang("1 000 000 тенге несие керек", session) == "kk"
         assert session["lang"] == "kk"
 
     def test_update_session_lang_respects_locked_russian(self):

@@ -86,6 +86,14 @@ class Settings:
     fast_faq_enabled: bool = field(
         default_factory=lambda: _getenv("FAST_FAQ", "true").lower() in ("1", "true", "yes")
     )
+    # Умный гид к FAQ (короткий LLM-вопрос, если правила не сработали)
+    faq_guide_llm_enabled: bool = field(
+        default_factory=lambda: _getenv("FAQ_GUIDE_LLM", "true").lower() in ("1", "true", "yes")
+    )
+    # Гибрид: FAQ/меню + AI-агент (с подсказкой разделов 1–7)
+    hybrid_ai_enabled: bool = field(
+        default_factory=lambda: _getenv("HYBRID_AI", "true").lower() in ("1", "true", "yes")
+    )
     local_llm_max_tokens: int = field(
         default_factory=lambda: int(_getenv("LOCAL_LLM_MAX_TOKENS", "256"))
     )
@@ -102,6 +110,17 @@ class Settings:
     # Security
     ignored_chat_ids: str = field(default_factory=lambda: _getenv("IGNORED_CHAT_IDS", ""))
     
+    # Расписание: будни 09–18 — менеджер; вечер/выходные/праздники — бот
+    bot_schedule_enabled: bool = field(
+        default_factory=lambda: _getenv("BOT_SCHEDULE_ENABLED", "true").lower() in ("1", "true", "yes")
+    )
+    bot_timezone: str = field(default_factory=lambda: _getenv("BOT_TIMEZONE", "Asia/Almaty"))
+    bot_human_hours_start: str = field(default_factory=lambda: _getenv("BOT_HUMAN_HOURS_START", "09:00"))
+    bot_human_hours_end: str = field(default_factory=lambda: _getenv("BOT_HUMAN_HOURS_END", "18:00"))
+    bot_holidays: str = field(
+        default_factory=lambda: _getenv("BOT_HOLIDAYS", "")
+    )  # YYYY-MM-DD через запятую, дополняет встроенный список
+
     # Timing
     reminder_delay_seconds: int = field(default_factory=lambda: int(_getenv("REMINDER_DELAY_SECONDS", "3600")))
     order_abandon_nudge_seconds: int = field(default_factory=lambda: int(_getenv("ORDER_ABANDON_NUDGE_SECONDS", "1800")))

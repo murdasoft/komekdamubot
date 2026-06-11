@@ -4,6 +4,14 @@
 
 from __future__ import annotations
 
+from app.bot.ux_labels import (
+    MAIN_LIST_STEP_KK,
+    MAIN_LIST_STEP_RU,
+    MAIN_LIST_TITLE_KK,
+    MAIN_LIST_TITLE_RU,
+    MEDIA_HINT_KK,
+    MEDIA_HINT_RU,
+)
 from app.bot.knowledge_base import (
     format_ip_credit_answer,
     format_mortgage_programs_answer,
@@ -24,8 +32,8 @@ MAIN_MENU_DIGIT_MAP: dict[str, str] = {
 }
 
 MAIN_MENU_RU = (
-    "📋 *Меню KOMEK DAMU*\n\n"
-    "*Шаг 3* — напишите цифру:\n\n"
+    f"{MAIN_LIST_TITLE_RU}\n\n"
+    f"{MAIN_LIST_STEP_RU}\n\n"
     "1️⃣ ИП / ЖК (бизнес)\n"
     "2️⃣ ТОО\n"
     "3️⃣ Кредит для себя (физлицо)\n"
@@ -36,8 +44,8 @@ MAIN_MENU_RU = (
 )
 
 MAIN_MENU_KK = (
-    "📋 *KOMEK DAMU мәзірі*\n\n"
-    "*3-ші қадам* — санын жазыңыз:\n\n"
+    f"{MAIN_LIST_TITLE_KK}\n\n"
+    f"{MAIN_LIST_STEP_KK}\n\n"
     "1️⃣ ЖК / ИП (бизнес)\n"
     "2️⃣ ТОО\n"
     "3️⃣ Жеке тұлға (өзіне)\n"
@@ -47,15 +55,8 @@ MAIN_MENU_KK = (
     "7️⃣ Менеджермен байланысу"
 )
 
-MEDIA_MENU_RU = (
-    "📷 Фото и документы бот не разбирает.\n\n"
-    "Выберите нужный раздел цифрой из меню ниже 👇"
-)
-
-MEDIA_MENU_KK = (
-    "📷 Фото мен құжатты бот оқымайды.\n\n"
-    "Төмендегі мәзірден сан таңдаңыз 👇"
-)
+MEDIA_MENU_RU = MEDIA_HINT_RU
+MEDIA_MENU_KK = MEDIA_HINT_KK
 
 
 def get_main_menu_text(lang: str) -> str:
