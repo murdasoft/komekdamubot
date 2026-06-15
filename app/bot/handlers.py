@@ -598,10 +598,9 @@ async def _process_tg_voice_message(
             return None
 
         raw = transcribed.strip()
-        if not session.get("lang_locked"):
-            session["lang"] = DEFAULT_LANG
-            if any(c in KK_CHARS for c in raw.lower()) or detected_lang == "kk":
-                session["lang"] = "kk"
+        from app.bot.lang_policy import resolve_voice_lang
+
+        resolve_voice_lang(raw, session, stt_lang=detected_lang)
 
         cmd_text = await _voice_text_for_handler(raw, session)
         if hasattr(tg_client, "note_stt"):
@@ -1912,10 +1911,9 @@ async def _handle_whatsapp_update_inner(
             logger.warning("WA VOICE STEP 4: STT raw text=%s lang=%s", transcribed[:80] if transcribed else None, detected_lang)
             if transcribed and transcribed.strip():
                 raw_text = transcribed.strip()
-                if not session.get("lang_locked"):
-                    session["lang"] = DEFAULT_LANG
-                    if any(c in KK_CHARS for c in raw_text.lower()) or detected_lang == "kk":
-                        session["lang"] = "kk"
+                from app.bot.lang_policy import resolve_voice_lang
+
+                resolve_voice_lang(raw_text, session, stt_lang=detected_lang)
                 lang_ui = session.get("lang", DEFAULT_LANG)
 
                 route = await prepare_voice_input(raw_text, session)

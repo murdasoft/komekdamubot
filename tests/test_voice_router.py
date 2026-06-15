@@ -108,3 +108,13 @@ def test_resolve_menu_digit_combined():
     session = {"lang": "ru", "state": "idle"}
     assert resolve_menu_digit_from_text("рефинансирование кредита", session) == "6"
     assert resolve_menu_digit_from_text("четыре", session) == "4"
+
+
+def test_long_utterance_not_digit_menu():
+    garbage = (
+        "орындауы керек сөздерді түзетеміз менеджер жеті "
+        "қосылдым жақын арада хабарласады " * 3
+    )
+    route = route_voice_text(garbage, {"state": "idle", "city_confirmed": True})
+    assert route.source == "raw"
+    assert route.text != "7"

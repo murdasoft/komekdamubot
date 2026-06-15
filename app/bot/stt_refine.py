@@ -5,7 +5,14 @@ from __future__ import annotations
 import logging
 import re
 
+from app.bot.lang_detect import detect_message_lang, has_kazakh_marker
+
 logger = logging.getLogger(__name__)
+
+_REFINE_LEAK_MARKERS = (
+    "кіріс:", "шығыс:", "stt транскрипт", "түзетілген", "ereje:", "whisper",
+    "сен komek", "түзетуші",
+)
 
 _REFINE_SYSTEM_KK = (
     "Сен KOMEK DAMU үшін қазақша STT түзетушісісің. "
@@ -35,6 +42,8 @@ async def refine_kk_transcript(
     session = session or {}
     if session.get("lang_locked") and session.get("lang") == "ru":
         return raw
+    if detect_message_lang(raw) == "ru" and not has_kazakh_marker(raw):
+        return raw
 
     from app.together_client import get_together_client
 
@@ -51,9 +60,13 @@ async def refine_kk_transcript(
             return raw
         out = fixed.strip().strip('"').strip("'")
         out = re.sub(r"^(түзетілген|исправлено|corrected):\s*", "", out, flags=re.I)
+        low_out = out.lower()
+        if any(m in low_out for m in _REFINE_LEAK_MARKERS):
+            logger.warning("STT LLM refine leak detected, using raw")
+            return raw
         if len(out) < 2:
             return raw
-        if len(out) > len(raw) * 3:
+        if len(out) > len(raw) * 2 or len(out) > 500:
             return raw
         logger.info("STT LLM refine: %r -> %r", raw[:50], out[:50])
         return out

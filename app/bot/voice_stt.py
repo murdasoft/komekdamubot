@@ -9,6 +9,7 @@ import logging
 from typing import TYPE_CHECKING, Optional
 
 from app.ai_utils import detect_language_simple
+from app.bot.lang_detect import detect_message_lang, has_kazakh_marker
 from app.bot.kk_stt_lexicon import (
     build_kk_whisper_prompt,
     build_kk_whisper_prompt_for_duration,
@@ -101,9 +102,7 @@ def _pick_best_candidate(
             top = kk_top
     best = max(top, key=lambda x: x[2])
     text, det, score = best
-    detected = det or detect_language_simple(text)
-    if prefer_kk and detected != "kk" and not any(ch in text.lower() for ch in "әіңғүұқөһ"):
-        detected = "kk"
+    detected = detect_message_lang(text)
     logger.info(
         "STT best of %s candidates: score=%s lang=%s text=%s",
         len(candidates),
@@ -375,13 +374,17 @@ async def _finalize_transcript(
     settings: "Settings",
     session: dict | None,
 ) -> tuple[str, str]:
-    if _stt_prefer_kk(session):
+    content_lang = detect_message_lang(text)
+    refine_kk = content_lang == "kk" or has_kazakh_marker(text)
+    if refine_kk and _stt_prefer_kk(session):
         text = await refine_kk_transcript(text, settings, session)
         text = normalize_stt_voice_text(text, session)
-        detected = "kk"
     else:
         text = normalize_stt_voice_text(text, session)
-    return text, detected
+    final_lang = detect_message_lang(text)
+    if session and session.get("lang_locked"):
+        final_lang = session.get("lang", final_lang)
+    return text, final_lang
 
 
 async def transcribe_voice_message(

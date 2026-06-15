@@ -115,6 +115,11 @@ def _normalize_low(text: str) -> str:
 
 def extract_spoken_digit(text: str) -> str | None:
     low = _normalize_low(text)
+    if not low:
+        return None
+    words = _WORD.findall(low)
+    if len(words) > 6 or len(low) > 48:
+        return None
     if low.isdigit() and len(low) <= 2:
         return low
     words = set(_WORD.findall(low))
@@ -302,6 +307,9 @@ def route_voice_text(
     if looks_like_credit_question(cleaned):
         return VoiceRoute(text=cleaned, source="raw", raw_transcript=raw)
 
+    word_count = len(cleaned.split())
+    long_utterance = word_count > 8 or len(cleaned) > 80
+
     state = (session or {}).get("state", "idle")
 
     if state == "selecting_lang":
@@ -309,13 +317,14 @@ def route_voice_text(
         if lang_digit:
             return VoiceRoute(text=lang_digit, source="lang", raw_transcript=raw)
 
-    digit = extract_spoken_digit(cleaned)
-    if digit:
-        return VoiceRoute(text=digit, source="digit", raw_transcript=raw)
+    if not long_utterance:
+        digit = extract_spoken_digit(cleaned)
+        if digit:
+            return VoiceRoute(text=digit, source="digit", raw_transcript=raw)
 
-    phrase_digit = map_menu_phrase(cleaned)
-    if phrase_digit:
-        return VoiceRoute(text=phrase_digit, source="phrase", raw_transcript=raw)
+        phrase_digit = map_menu_phrase(cleaned)
+        if phrase_digit:
+            return VoiceRoute(text=phrase_digit, source="phrase", raw_transcript=raw)
 
     intent_digit = map_intent_from_text(cleaned, session)
     if intent_digit:

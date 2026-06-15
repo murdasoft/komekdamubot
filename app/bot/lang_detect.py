@@ -32,6 +32,25 @@ _RU_PHRASES = (
 )
 
 
+def has_kazakh_marker(text: str) -> bool:
+    """Хотя бы один явный казахский маркер (әіңғүұқөһ, слово из словаря, фраза)."""
+    if not text or not text.strip():
+        return False
+    lower = text.lower()
+    if any(c in KK_CHARS for c in lower):
+        return True
+    for phrase in KK_PHRASES:
+        if phrase in lower:
+            return True
+    words = set(_WORD_RE.findall(lower)) - _AMBIGUOUS
+    if words:
+        from app.bot.kazakh_dict import get_all_kk_words
+
+        if words & get_all_kk_words():
+            return True
+    return False
+
+
 def detect_message_lang(text: str) -> str:
     """
     kk — по умолчанию; ru — при явных русских маркерах.
@@ -41,7 +60,7 @@ def detect_message_lang(text: str) -> str:
 
     lower = text.lower()
 
-    if any(c in KK_CHARS for c in lower):
+    if has_kazakh_marker(text):
         return "kk"
 
     for phrase in _RU_PHRASES:
@@ -54,13 +73,6 @@ def detect_message_lang(text: str) -> str:
 
     for phrase in KK_PHRASES:
         if phrase in lower:
-            return "kk"
-
-    kk_only = words - _AMBIGUOUS
-    if kk_only:
-        from app.bot.kazakh_dict import get_all_kk_words
-
-        if kk_only & get_all_kk_words():
             return "kk"
 
     return DEFAULT_LANG

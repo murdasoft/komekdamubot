@@ -44,5 +44,31 @@ def test_is_explicit_lang():
     assert not is_explicit_lang_message("нужен кредит 5 млн")
 
 
-def test_detect_from_free_text_russian():
-    assert detect_lang_from_free_text("добрый день, ипотека") == "ru"
+def test_resolve_voice_russian_no_kk():
+    from app.bot.lang_policy import resolve_voice_lang
+
+    session = {"lang": "kk", "lang_locked": False}
+    assert resolve_voice_lang("здравствуйте нужен кредит на пять миллионов", session) == "ru"
+    assert session["lang"] == "ru"
+
+
+def test_resolve_voice_kk_with_one_word():
+    from app.bot.lang_policy import resolve_voice_lang
+
+    session = {"lang": "ru", "lang_locked": False}
+    assert resolve_voice_lang("сәлем, нужен кредит", session) == "kk"
+    assert session["lang"] == "kk"
+
+
+def test_resolve_voice_continues_russian_session():
+    from app.bot.lang_policy import resolve_voice_lang
+
+    session = {"lang": "ru", "lang_locked": False}
+    assert resolve_voice_lang("ипотека на квартиру", session) == "ru"
+
+
+def test_has_kazakh_marker_mixed():
+    from app.bot.lang_detect import has_kazakh_marker
+
+    assert has_kazakh_marker("хочу кредит алғым келеді") is True
+    assert has_kazakh_marker("нужен кредит на квартиру") is False

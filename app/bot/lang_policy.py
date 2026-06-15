@@ -9,7 +9,7 @@ from typing import Optional
 
 from app.bot.chatbot_ux import parse_lang_digit
 from app.bot.content import DEFAULT_LANG
-from app.bot.lang_detect import detect_message_lang
+from app.bot.lang_detect import detect_message_lang, has_kazakh_marker
 
 _LANG_ONLY_MAX_WORDS = 4
 
@@ -49,6 +49,43 @@ def lang_switch_confirmation(lang: str) -> str:
     if lang == "ru":
         return "✅ *Ок, общаемся по-русски.*\nНапишите вопрос или цифру раздела (1–7)."
     return "✅ *Жарайды, қазақша жалғастырамыз.*\nСұрағыңызды немесе бөлім санын (1–7) жазыңыз."
+
+
+def resolve_voice_lang(
+    text: str,
+    session: dict,
+    *,
+    stt_lang: str | None = None,
+) -> str:
+    """
+    Язык после голосового STT:
+    - хотя бы 1 казахское слово/буква → kk
+    - явный русский без kk → ru
+    - иначе продолжаем session.lang (kk по умолчанию)
+    """
+    if session.get("lang_locked"):
+        return session.get("lang", DEFAULT_LANG)
+
+    if has_kazakh_marker(text):
+        session["lang"] = "kk"
+        session.pop("ru_streak", None)
+        return "kk"
+
+    detected = detect_message_lang(text)
+    if detected == "ru":
+        session["lang"] = "ru"
+        session.pop("ru_streak", None)
+        return "ru"
+
+    if stt_lang == "ru" and not has_kazakh_marker(text):
+        session["lang"] = "ru"
+        return "ru"
+
+    if session.get("lang") == "ru":
+        return "ru"
+
+    session["lang"] = DEFAULT_LANG
+    return DEFAULT_LANG
 
 
 def resolve_reply_lang(text: str, session: dict) -> str:
