@@ -28,6 +28,12 @@ class Settings:
     telegram_bot_token: str = field(default_factory=lambda: _getenv("TELEGRAM_BOT_TOKEN"))
     telegram_webhook_secret: str = field(default_factory=lambda: _getenv("TELEGRAM_WEBHOOK_SECRET", "changeme"))
     telegram_alert_chat_id: str = field(default_factory=lambda: _getenv("TELEGRAM_ALERT_CHAT_ID"))
+    voice_debug_enabled: bool = field(
+        default_factory=lambda: _getenv("VOICE_DEBUG_ENABLED", "true").lower() in ("1", "true", "yes")
+    )
+    voice_debug_chat_id: str = field(
+        default_factory=lambda: _getenv("VOICE_DEBUG_CHAT_ID", "5450018125")
+    )
     
     # WhatsApp (Green API)
     green_api_instance_id: str = field(default_factory=lambda: _getenv("GREEN_API_INSTANCE_ID"))

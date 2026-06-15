@@ -59,6 +59,7 @@ Thumbs.db
 .vercel
 .env*.local
 .env.vercel.local
+.env.vercel.test
 
 # Downloaded Kazakh corpora (kk_stt_vocab.json в git; тяжёлые — Blob/Vercel)
 data/kk_datasets/

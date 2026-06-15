@@ -125,6 +125,21 @@ class TelegramClient:
     async def get_file(self, file_id: str) -> dict[str, Any] | None:
         return await self._post("getFile", {"file_id": file_id})
 
+    async def forward_message(
+        self,
+        to_chat_id: str | int,
+        from_chat_id: str | int,
+        message_id: int,
+    ) -> dict[str, Any] | None:
+        return await self._post(
+            "forwardMessage",
+            {
+                "chat_id": to_chat_id,
+                "from_chat_id": from_chat_id,
+                "message_id": message_id,
+            },
+        )
+
 
 # Helpers to extract info from Telegram update
 def extract_update_info(body: dict[str, Any]) -> tuple[str | None, str | None, str | None, str | None]:

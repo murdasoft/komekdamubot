@@ -559,6 +559,8 @@ async def _process_tg_voice_message(
         else:
             lang_hint = "kk"
         duration_sec = get_voice_duration_sec(body)
+        if hasattr(tg_client, "note_stt"):
+            tg_client.note_stt(duration_sec=duration_sec)
         logger.info(
             "Voice TG: STT started chat=%s lang_hint=%s dur=%s",
             chat_id,
@@ -584,6 +586,8 @@ async def _process_tg_voice_message(
         )
 
         if not transcribed or not transcribed.strip():
+            if hasattr(tg_client, "note_stt"):
+                tg_client.note_stt(error="пустой транскрипт")
             await tg_client.send_message(
                 chat_id,
                 content.VOICE_STT_FAILED_RU
@@ -600,6 +604,8 @@ async def _process_tg_voice_message(
                 session["lang"] = "kk"
 
         cmd_text = await _voice_text_for_handler(raw, session)
+        if hasattr(tg_client, "note_stt"):
+            tg_client.note_stt(raw=raw, routed=cmd_text, duration_sec=duration_sec)
         logger.info("Voice TG: routed cmd=%s chat=%s", cmd_text[:60], chat_id)
         session["from_voice"] = True
         session["last_voice_raw"] = raw
@@ -608,6 +614,8 @@ async def _process_tg_voice_message(
 
     except asyncio.TimeoutError:
         logger.error("Voice TG: STT timeout chat=%s", chat_id)
+        if hasattr(tg_client, "note_stt"):
+            tg_client.note_stt(error="timeout 55s")
         await tg_client.send_message(
             chat_id,
             "Не удалось распознать голосовое вовремя. Попробуйте ещё раз или напишите текстом."
@@ -618,6 +626,8 @@ async def _process_tg_voice_message(
         return None
     except Exception:
         logger.exception("Voice TG: ERROR chat=%s", chat_id)
+        if hasattr(tg_client, "note_stt"):
+            tg_client.note_stt(error="exception")
         await tg_client.send_message(
             chat_id,
             "Не удалось распознать голосовое. Попробуйте ещё раз или напишите текстом."
@@ -1094,22 +1104,38 @@ async def handle_telegram_update(
         extract_update_info, get_message_id,
         is_voice_message, get_voice_file_id, get_file_url
     )
+    from app.bot.voice_debug import create_voice_debug_monitor
 
-    chat_id, _, _, _ = extract_update_info(body)
+    chat_id, _, sender_name, _ = extract_update_info(body)
+    monitor = None
+    client = tg_client
+    if is_voice_message(body) and chat_id:
+        monitor = create_voice_debug_monitor(
+            tg_client,
+            body=body,
+            source_chat_id=chat_id,
+            sender_name=sender_name,
+        )
+        if monitor:
+            client = monitor.client
+
     try:
-        return await _handle_telegram_update_inner(body, tg_client, ai)
+        return await _handle_telegram_update_inner(body, client, ai)
     except Exception as exc:
         logger.exception("CRITICAL: handle_telegram_update crashed chat=%s: %s", chat_id, exc)
         if chat_id:
             try:
                 from app.bot.city_routing import get_universal_fallback_reply
                 lang = _sessions.get(str(chat_id), {}).get("lang", DEFAULT_LANG)
-                await tg_client.send_message(
+                await client.send_message(
                     chat_id,
                     get_universal_fallback_reply(lang, platform="telegram")
                 )
             except Exception:
                 pass
+    finally:
+        if monitor:
+            await monitor.flush()
 
 
 async def _handle_telegram_update_inner(
