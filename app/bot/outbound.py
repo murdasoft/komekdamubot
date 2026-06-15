@@ -8,8 +8,11 @@ from typing import Any
 from app.bot.formatting import Platform, sanitize_for_telegram
 
 
-def clean_whatsapp_text(text: str) -> str:
+def clean_whatsapp_text(text: str, lang: str = "kk") -> str:
     """Убрать битые backticks, markdown-ссылки и дубли вопроса про город."""
+    from app.bot.formatting import strip_foreign_scripts
+
+    text = strip_foreign_scripts(text, lang)
     text = text.replace("```", "").replace("`", "")
     # WhatsApp не понимает [текст](tel:+7...) — оставляем только номер/текст
     text = re.sub(r"\[([^\]]+)\]\((?:tel:|https?://)[^)]+\)", r"\1", text, flags=re.IGNORECASE)

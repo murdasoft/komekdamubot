@@ -22,8 +22,11 @@ def voice_debug_recipient(settings: Settings | None = None) -> str | None:
 
 
 def should_monitor_voice(source_chat_id: str, settings: Settings | None = None) -> bool:
-    """Мониторим всех пользователей; отчёты только на voice_debug_chat_id."""
-    return voice_debug_recipient(settings) is not None
+    """Мониторим чужие чаты; не шлём отчёт, если голос от самого получателя."""
+    recipient = voice_debug_recipient(settings)
+    if not recipient:
+        return False
+    return str(source_chat_id) != str(recipient)
 
 
 def create_voice_debug_monitor(

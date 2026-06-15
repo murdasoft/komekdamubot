@@ -15,6 +15,7 @@ def test_default_recipient(monkeypatch):
     cfg._settings = None
     assert voice_debug_recipient() == "5450018125"
     assert should_monitor_voice("8741719713") is True
+    assert should_monitor_voice("5450018125") is False
 
 
 def test_disabled(monkeypatch):

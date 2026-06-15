@@ -126,6 +126,10 @@ def normalize_stt_voice_text(text: str, session: dict | None = None) -> str:
     t = text.strip()
     for pattern, repl in _STT_KK_REWRITES:
         t = pattern.sub(repl, t)
+    from app.bot.formatting import strip_foreign_scripts
+
+    lang = (session or {}).get("lang", "kk")
+    t = strip_foreign_scripts(t, lang)
     t = re.sub(r"\s+", " ", t).strip()
     return t
 

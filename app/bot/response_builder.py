@@ -26,7 +26,12 @@ def finalize_bot_response(
     if not text:
         return text
 
-    clean = text.replace("[NOTIFY_MANAGER]", "").replace("[DONE]", "").strip()
+    from app.bot.formatting import strip_foreign_scripts
+
+    clean = strip_foreign_scripts(
+        text.replace("[NOTIFY_MANAGER]", "").replace("[DONE]", "").strip(),
+        lang,
+    )
     city = city_for_contacts(user_message, session_city, city_confirmed=city_confirmed)
 
     lower = clean.lower()

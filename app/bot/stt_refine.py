@@ -68,6 +68,10 @@ async def refine_kk_transcript(
             return raw
         if len(out) > len(raw) * 2 or len(out) > 500:
             return raw
+        from app.bot.formatting import strip_foreign_scripts
+
+        lang = (session or {}).get("lang", "kk")
+        out = strip_foreign_scripts(out, lang)
         logger.info("STT LLM refine: %r -> %r", raw[:50], out[:50])
         return out
     except Exception:

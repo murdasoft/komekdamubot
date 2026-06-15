@@ -255,8 +255,30 @@ def escape_telegram_markdown(text: str) -> str:
     return "".join(out)
 
 
-def sanitize_for_telegram(text: str) -> str:
-    """Убрать битую разметку — оставить * и ` где возможно."""
+def strip_foreign_scripts(text: str, lang: str = "kk") -> str:
+    """
+    Убрать китайский/японский/корейский мусор из LLM/STT (电话 → 📞 и т.д.).
+  """
+    if not text:
+        return text
+
+    phone = "📞"
+    for token in ("电话", "電話", "手机", "手机号码", "联系电话", "传真"):
+        text = text.replace(token, phone)
+    text = text.replace("微信", "WhatsApp")
+
+    cjk_run = re.compile(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]+")
+    text = cjk_run.sub("", text)
+
+    text = re.sub(r"📞\s*:\s*", "📞 ", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def sanitize_for_telegram(text: str, lang: str = "kk") -> str:
+    """Убрать битую разметку и чужие символы."""
+    text = strip_foreign_scripts(text, lang)
     # Непарные backticks
     if text.count("`") % 2:
         text = text.replace("`", "'")
