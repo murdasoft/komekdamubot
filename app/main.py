@@ -165,7 +165,7 @@ async def telegram_webhook(
         return Response(status_code=200)
     
     try:
-        await handle_telegram_update(body, tg_client, ai_client)
+        await handle_telegram_update(body, tg_client, ai_client, wa_client)
     except Exception as e:
         logger.exception("Error handling Telegram update")
         # Still return 200 to avoid retries
@@ -227,7 +227,7 @@ async def whatsapp_webhook(
         return Response(status_code=200)
 
     try:
-        await handle_whatsapp_update(body, wa_client, ai_client)
+        await handle_whatsapp_update(body, wa_client, ai_client, tg_client)
     except Exception:
         logger.exception("Error handling WhatsApp update")
 

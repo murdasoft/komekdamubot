@@ -85,3 +85,66 @@ async def send_tg_city_help(tg_client: Any, chat_id: str, session: dict) -> None
         reply_lang=lang,
         nav_step="city",
     )
+
+
+async def send_wa_with_hint(
+    wa_client: Any,
+    chat_id: str,
+    session: dict,
+    message: str,
+    *,
+    reply_lang: str | None = None,
+    nav_step: str | None = None,
+) -> None:
+    lang = reply_lang or session.get("lang", "kk")
+    step = nav_step if nav_step is not None else nav_step_from_session(session)
+    text = content.add_wa_back_hint(message, lang, step=step)
+    await wa_client.send_message(chat_id, text)
+
+
+async def send_wa_lang_step(wa_client: Any, chat_id: str, session: dict) -> None:
+    await send_wa_with_hint(
+        wa_client,
+        chat_id,
+        session,
+        get_lang_step_text(),
+        reply_lang="kk",
+        nav_step="lang",
+    )
+
+
+async def send_wa_city_step(wa_client: Any, chat_id: str, session: dict) -> None:
+    lang = session.get("lang", "kk")
+    await send_wa_with_hint(
+        wa_client,
+        chat_id,
+        session,
+        get_city_step_text(lang),
+        reply_lang=lang,
+        nav_step="city",
+    )
+
+
+async def send_wa_main_menu(wa_client: Any, chat_id: str, session: dict) -> None:
+    lang = session.get("lang", "kk")
+    city = session.get("city") or "almaty"
+    await send_wa_with_hint(
+        wa_client,
+        chat_id,
+        session,
+        get_welcome_with_menu(lang, city, "whatsapp"),
+        reply_lang=lang,
+        nav_step="main",
+    )
+
+
+async def send_wa_city_help(wa_client: Any, chat_id: str, session: dict) -> None:
+    lang = session.get("lang", "kk")
+    await send_wa_with_hint(
+        wa_client,
+        chat_id,
+        session,
+        get_city_step_help(lang),
+        reply_lang=lang,
+        nav_step="city",
+    )

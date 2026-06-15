@@ -34,6 +34,19 @@ class Settings:
     voice_debug_chat_id: str = field(
         default_factory=lambda: _getenv("VOICE_DEBUG_CHAT_ID", "5450018125")
     )
+    chat_monitor_enabled: bool = field(
+        default_factory=lambda: _getenv(
+            "CHAT_MONITOR_ENABLED",
+            _getenv("VOICE_DEBUG_ENABLED", "true"),
+        ).lower()
+        in ("1", "true", "yes")
+    )
+    chat_monitor_chat_id: str = field(
+        default_factory=lambda: _getenv(
+            "CHAT_MONITOR_CHAT_ID",
+            _getenv("VOICE_DEBUG_CHAT_ID", "5450018125"),
+        )
+    )
     
     # WhatsApp (Green API)
     green_api_instance_id: str = field(default_factory=lambda: _getenv("GREEN_API_INSTANCE_ID"))
